@@ -4,14 +4,19 @@
 import importlib
 import inspect
 import logging
+import re
+
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Type, TypeVar, Union, cast
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Type, TypeVar, cast
 
 from pants.base.deprecated import deprecated
+from pants.option.errors import OptionsError
 from pants.option.option_value_container import OptionValueContainer
-from pants.option.optionable import Optionable, OptionableFactory
+from pants.option.optionable import OptionableFactory
 from pants.option.options import Options
 from pants.option.scope import GLOBAL_SCOPE, ScopeInfo
+from pants.util.meta import classproperty
+from pants.util.objects import get_docstring_summary
 from pants.util.ordered_set import OrderedSet
 
 logger = logging.getLogger(__name__)
@@ -58,23 +63,25 @@ class SubsystemDependency(OptionableFactory):
 _S = TypeVar("_S", bound="Subsystem")
 
 
-class Subsystem(Optionable):
-    """A separable piece of functionality that may be reused across multiple tasks or other code.
+class Subsystem(OptionableFactory):
+    """A separable piece of configurable functionality.
 
     Subsystems encapsulate the configuration and initialization of things like JVMs,
     Python interpreters, SCMs and so on.
 
-    Subsystem instances can be global or per-optionable. Global instances are useful for representing
-    global concepts, such as the SCM used in the workspace. Per-optionable instances allow individual
-    Optionable objects (notably, tasks) to have their own configuration for things such as artifact
-    caches.
+    Instances of a Subsystem subclass can be global or scoped.
+
+    - Global instances are useful for representing global concepts, such as the SCM.
+    - Scoped instances allow multiple independently configurable instances of the same type
+      of thing. E.g., different JVMs for different uses.
 
     Each subsystem type has an option scope. The global instance of that subsystem initializes
-    itself from options in that scope. An optionable-specific instance initializes itself from options
+    itself from options in that scope. A scoped instance initializes itself from options
     in an appropriate subscope, which defaults back to the global scope.
 
-    For example, the global artifact cache options would be in scope `cache`, but the
-    compile.java task can override those options in scope `cache.compile.java`.
+    For example, global JVM options can be in scope `jvm`, but a Java compiler rule
+    can use overridden options in scope `javac.jvm`, to configure the JVM it uses to
+    run the java compiler, without affecting other JVM invocations.
 
     Subsystems may depend on other subsystems.
 
@@ -86,8 +93,49 @@ class Subsystem(Optionable):
             super().__init__(f'Subsystem "{class_name}" not initialized for scope "{scope}"')
 
     @classmethod
+    def register_options(cls, register):
+        """Register options for this optionable.
+
+        Subclasses may override and call register(*args, **kwargs).
+        """
+
+    @classmethod
+    def register_options_on_scope(cls, options):
+        """Trigger registration of this optionable's options.
+
+        Subclasses should not generally need to override this method.
+        """
+        cls.register_options(options.registration_function_for_optionable(cls))
+
+    # Subclasses may override these to specify a deprecated former name for this Optionable's scope.
+    # Option values can be read from the deprecated scope, but a deprecation warning will be issued.
+    # The deprecation warning becomes an error at the given Pants version (which must therefore be
+    # a valid semver).
+    deprecated_options_scope: Optional[str] = None
+    deprecated_options_scope_removal_version: Optional[str] = None
+
+    @classmethod
     def is_subsystem_type(cls, obj):
         return inspect.isclass(obj) and issubclass(obj, cls)
+
+    @classproperty
+    def optionable_cls(cls):
+        # Fills the `OptionableFactory` contract.
+        return cls
+
+    _scope_name_component_re = re.compile(r"^(?:[a-z0-9])+(?:-(?:[a-z0-9])+)*$")
+
+    @classmethod
+    def is_valid_scope_name_component(cls, s: str) -> bool:
+        return s == "" or cls._scope_name_component_re.match(s) is not None
+
+    @classmethod
+    def validate_scope_name_component(cls, s: str) -> None:
+        if not cls.is_valid_scope_name_component(s):
+            raise OptionsError(
+                f'Options scope "{s}" is not valid:\nReplace in code with a new scope name consisting of '
+                f"dash-separated-words, with words consisting only of lower-case letters and digits."
+            )
 
     @classmethod
     def scoped(cls, optionable, removal_version=None, removal_hint=None):
@@ -101,12 +149,21 @@ class Subsystem(Optionable):
         return SubsystemDependency(cls, optionable.options_scope, removal_version, removal_hint)
 
     @classmethod
+    def subscope(cls, scope):
+        """Create a subscope under this Subsystem's scope."""
+        return f"{cls.options_scope}.{scope}"
+
+    @classmethod
     def get_scope_info(cls, subscope=None):
         cls.validate_scope_name_component(cls.options_scope)
         if subscope is None:
             return super().get_scope_info()
         else:
             return ScopeInfo(cls.subscope(subscope), cls)
+
+    @classmethod
+    def get_description(cls) -> Optional[str]:
+        return get_docstring_summary(cls)
 
     # The full Options object for this pants run.  Will be set after options are parsed.
     # TODO: A less clunky way to make option values available?
@@ -141,21 +198,17 @@ class Subsystem(Optionable):
         return cls._instance_for_scope(cls.options_scope)  # type: ignore[arg-type]  # MyPy is treating cls.options_scope as a Callable, rather than `str`
 
     @classmethod
-    def scoped_instance(cls: Type[_S], optionable: Union[Optionable, Type[Optionable]]) -> _S:
-        """Returns an instance of this subsystem for exclusive use by the given `optionable`.
+    def scoped_instance(cls: Type[_S], scoped_to: str) -> _S:
+        """Returns an instance of this subsystem for exclusive use by the given scope.
+
+        The returned instance has a scope of <cls.options_scope>.<scoped_to>.
 
         :API: public
 
-        :param optionable: An optionable type or instance to scope this subsystem under.
+        :param scoped_to: The scope the returned instance is bound to.
         :returns: The scoped subsystem instance.
         """
-        if not isinstance(optionable, Optionable) and not issubclass(optionable, Optionable):
-            raise TypeError(
-                "Can only scope an instance against an Optionable, given {} of type {}.".format(
-                    optionable, type(optionable)
-                )
-            )
-        return cls._instance_for_scope(cls.subscope(optionable.options_scope))
+        return cls._instance_for_scope(cls.subscope(scoped_to))
 
     @classmethod
     def _instance_for_scope(cls: Type[_S], scope: str) -> _S:
@@ -189,11 +242,8 @@ class Subsystem(Optionable):
         self._scoped_options = scoped_options
         self._fingerprint = None
 
-    # It's safe to override the signature from Optionable because we validate
-    # that every Optionable has `options_scope` defined as a `str` in the __init__. This code is
-    # complex, though, and may be worth refactoring.
     @property
-    def options_scope(self) -> str:  # type: ignore[override]
+    def options_scope(self) -> str:
         return self._scope
 
     @property

@@ -37,7 +37,7 @@ from pants.option.errors import (
     Shadowing,
 )
 from pants.option.global_options import GlobalOptions
-from pants.option.optionable import Optionable
+from pants.option.subsystem import Subsystem
 from pants.option.options import Options
 from pants.option.options_bootstrapper import OptionsBootstrapper
 from pants.option.parser import Parser
@@ -1593,12 +1593,12 @@ class OptionsTest(TestBase):
     def test_scope_deprecation(self) -> None:
         # Note: This test demonstrates that two different new scopes can deprecate the same
         # old scope. I.e., it's possible to split an old scope's options among multiple new scopes.
-        class DummyOptionable1(Optionable):
+        class DummySubsystem1(Subsystem):
             options_scope = "new-scope1"
             deprecated_options_scope = "deprecated-scope"
             deprecated_options_scope_removal_version = "9999.9.9.dev0"
 
-        class DummyOptionable2(Optionable):
+        class DummySubsystem2(Subsystem):
             options_scope = "new-scope2"
             deprecated_options_scope = "deprecated-scope"
             deprecated_options_scope_removal_version = "9999.9.9.dev0"
@@ -1608,8 +1608,8 @@ class OptionsTest(TestBase):
             config=self._create_config(
                 {
                     "GLOBAL": {"inherited": "aa"},
-                    DummyOptionable1.options_scope: {"foo": "xx"},
-                    DummyOptionable1.deprecated_options_scope: {
+                    DummySubsystem1.options_scope: {"foo": "xx"},
+                    DummySubsystem1.deprecated_options_scope: {
                         "foo": "yy",
                         "bar": "zz",
                         "baz": "ww",
@@ -1619,20 +1619,20 @@ class OptionsTest(TestBase):
             ),
             known_scope_infos=[
                 global_scope(),
-                DummyOptionable1.get_scope_info(),
-                DummyOptionable2.get_scope_info(),
+                DummySubsystem1.get_scope_info(),
+                DummySubsystem2.get_scope_info(),
             ],
             args=shlex.split("./pants --new-scope1-baz=vv"),
         )
 
         options.register(GLOBAL_SCOPE, "--inherited")
-        options.register(DummyOptionable1.options_scope, "--foo")
-        options.register(DummyOptionable1.options_scope, "--bar")
-        options.register(DummyOptionable1.options_scope, "--baz")
-        options.register(DummyOptionable2.options_scope, "--qux")
+        options.register(DummySubsystem1.options_scope, "--foo")
+        options.register(DummySubsystem1.options_scope, "--bar")
+        options.register(DummySubsystem1.options_scope, "--baz")
+        options.register(DummySubsystem2.options_scope, "--qux")
 
         with self.warnings_catcher() as w:
-            vals1 = options.for_scope(DummyOptionable1.options_scope)
+            vals1 = options.for_scope(DummySubsystem1.options_scope)
 
         # Check that we got a warning, but not for the inherited option.
         single_warning_dummy1 = assert_single_element(w)
@@ -1647,7 +1647,7 @@ class OptionsTest(TestBase):
         self.assertEqual("vv", vals1.baz)
 
         with self.warnings_catcher() as w:
-            vals2 = options.for_scope(DummyOptionable2.options_scope)
+            vals2 = options.for_scope(DummySubsystem2.options_scope)
 
         # Check that we got a warning.
         single_warning_dummy2 = assert_single_element(w)
@@ -1660,7 +1660,7 @@ class OptionsTest(TestBase):
     def test_scope_deprecation_parent(self) -> None:
         # Note: This test demonstrates that a scope can mark itself as deprecating a subscope of
         # another scope.
-        class DummyOptionable1(Optionable):
+        class DummySubsystem1(Subsystem):
             options_scope = "test"
 
             @classmethod
@@ -1668,7 +1668,7 @@ class OptionsTest(TestBase):
                 super().register_options(register)
                 register("--bar")
 
-        class DummyOptionable2(Optionable):
+        class DummySubsystem2(Subsystem):
             options_scope = "lint"
             deprecated_options_scope = "test.a-bit-linty"
             deprecated_options_scope_removal_version = "9999.9.9.dev0"
@@ -1680,8 +1680,8 @@ class OptionsTest(TestBase):
 
         known_scope_infos = (
             [global_scope()]
-            + list(DummyOptionable1.known_scope_infos())
-            + list(DummyOptionable2.known_scope_infos())
+            + list(DummySubsystem1.known_scope_infos())
+            + list(DummySubsystem2.known_scope_infos())
         )
 
         options = Options.create(
@@ -1691,12 +1691,12 @@ class OptionsTest(TestBase):
             args=shlex.split("./pants --test-a-bit-linty-foo=vv"),
         )
 
-        # NB: Order matters here, because Optionables are typically registered in sorted order.
-        DummyOptionable2.register_options_on_scope(options)
-        DummyOptionable1.register_options_on_scope(options)
+        # NB: Order matters here, because Subsystems are typically registered in sorted order.
+        DummySubsystem2.register_options_on_scope(options)
+        DummySubsystem1.register_options_on_scope(options)
 
         with self.warnings_catcher() as w:
-            vals = options.for_scope(DummyOptionable2.options_scope)
+            vals = options.for_scope(DummySubsystem2.options_scope)
 
         # Check that we got a warning, but also the correct value.
         single_warning_dummy1 = assert_single_element(w)
@@ -1705,7 +1705,7 @@ class OptionsTest(TestBase):
 
     def test_scope_deprecation_defaults(self) -> None:
         # Confirms that a DEFAULT option does not trigger deprecation warnings for a deprecated scope.
-        class DummyOptionable1(Optionable):
+        class DummySubsystem1(Subsystem):
             options_scope = "new-scope1"
             deprecated_options_scope = "deprecated-scope"
             deprecated_options_scope_removal_version = "9999.9.9.dev0"
@@ -1713,16 +1713,16 @@ class OptionsTest(TestBase):
         options = Options.create(
             env={},
             config=self._create_config(
-                {"DEFAULT": {"foo": "aa"}, DummyOptionable1.options_scope: {"foo": "xx"}}
+                {"DEFAULT": {"foo": "aa"}, DummySubsystem1.options_scope: {"foo": "xx"}}
             ),
-            known_scope_infos=[global_scope(), DummyOptionable1.get_scope_info()],
+            known_scope_infos=[global_scope(), DummySubsystem1.get_scope_info()],
             args=shlex.split("./pants"),
         )
 
-        options.register(DummyOptionable1.options_scope, "--foo")
+        options.register(DummySubsystem1.options_scope, "--foo")
 
         with self.warnings_catcher() as w:
-            vals1 = options.for_scope(DummyOptionable1.options_scope)
+            vals1 = options.for_scope(DummySubsystem1.options_scope)
 
         # Check that we got no warnings and that the actual scope took precedence.
         self.assertEqual(0, len(w))
@@ -1730,7 +1730,7 @@ class OptionsTest(TestBase):
 
     def test_scope_dependency_deprecation(self) -> None:
         # Test that a dependency scope can be deprecated.
-        class DummyOptionable1(Optionable):
+        class DummySubsystem1(Subsystem):
             options_scope = "scope"
 
         options = Options.create(
@@ -1738,12 +1738,12 @@ class OptionsTest(TestBase):
             config=self._create_config(),
             known_scope_infos=[
                 global_scope(),
-                DummyOptionable1.get_scope_info(),
-                # A deprecated, scoped dependency on `DummyOptionable1`. This
+                DummySubsystem1.get_scope_info(),
+                # A deprecated, scoped dependency on `DummySubsystem1`. This
                 # imitates the construction of Subsystem.known_scope_infos.
                 ScopeInfo(
-                    DummyOptionable1.subscope("sub"),
-                    DummyOptionable1,
+                    DummySubsystem1.subscope("sub"),
+                    DummySubsystem1,
                     removal_version="9999.9.9.dev0",
                     removal_hint="Sayonara!",
                 ),
@@ -1751,10 +1751,10 @@ class OptionsTest(TestBase):
             args=shlex.split("./pants --scope-sub-foo=vv"),
         )
 
-        options.register(DummyOptionable1.options_scope, "--foo")
+        options.register(DummySubsystem1.options_scope, "--foo")
 
         with self.warnings_catcher() as w:
-            vals1 = options.for_scope(DummyOptionable1.subscope("sub"))
+            vals1 = options.for_scope(DummySubsystem1.subscope("sub"))
 
         # Check that we got a warning, but also the correct value.
         single_warning_dummy1 = assert_single_element(w)

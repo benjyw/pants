@@ -11,7 +11,7 @@ from pants.build_graph.build_file_aliases import BuildFileAliases
 from pants.engine.rules import Rule, RuleIndex
 from pants.engine.target import Target
 from pants.engine.unions import UnionRule
-from pants.option.optionable import Optionable
+from pants.option.subsystem import Subsystem
 from pants.util.ordered_set import FrozenOrderedSet, OrderedSet
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class BuildConfiguration:
     """Stores the types and helper functions exposed to BUILD files."""
 
     registered_aliases: BuildFileAliases
-    optionables: FrozenOrderedSet[Optionable]
+    subsystems: FrozenOrderedSet[Subsystem]
     rules: FrozenOrderedSet[Rule]
     union_rules: FrozenOrderedSet[UnionRule]
     target_types: FrozenOrderedSet[Type[Target]]
@@ -31,7 +31,7 @@ class BuildConfiguration:
     class Builder:
         _exposed_object_by_alias: Dict[Any, Any] = field(default_factory=dict)
         _exposed_context_aware_object_factory_by_alias: Dict[Any, Any] = field(default_factory=dict)
-        _optionables: OrderedSet = field(default_factory=OrderedSet)
+        _subsystems: OrderedSet = field(default_factory=OrderedSet)
         _rules: OrderedSet = field(default_factory=OrderedSet)
         _union_rules: OrderedSet = field(default_factory=OrderedSet)
         _target_types: OrderedSet[Type[Target]] = field(default_factory=OrderedSet)
@@ -79,7 +79,7 @@ class BuildConfiguration:
             self._exposed_object_by_alias[alias] = obj
             # obj doesn't implement any common base class, so we have to test for this attr.
             if hasattr(obj, "subsystems"):
-                self.register_optionables(obj.subsystems())
+                self.register_subsystems(obj.subsystems())
 
         def _register_exposed_context_aware_object_factory(
             self, alias, context_aware_object_factory
@@ -94,29 +94,29 @@ class BuildConfiguration:
                 alias
             ] = context_aware_object_factory
 
-        def register_optionables(self, optionables):
+        def register_subsystems(self, subsystems):
             """Registers the given subsystem types.
 
-            :param optionables: The Optionable types to register.
-            :type optionables: :class:`collections.Iterable` containing
-                               :class:`pants.option.optionable.Optionable` subclasses.
+            :param subsystems: The Subsystem types to register.
+            :type subsystems: :class:`collections.Iterable` containing
+                               :class:`pants.option.subsystem.Subsystem` subclasses.
             """
-            if not isinstance(optionables, Iterable):
-                raise TypeError("The optionables must be an iterable, given {}".format(optionables))
-            optionables = tuple(optionables)
-            if not optionables:
+            if not isinstance(subsystems, Iterable):
+                raise TypeError("The subsystems must be an iterable, given {}".format(subsystems))
+            subsystems = tuple(subsystems)
+            if not subsystems:
                 return
 
-            invalid_optionables = [
-                s for s in optionables if not isinstance(s, type) or not issubclass(s, Optionable)
+            invalid_subsystems = [
+                s for s in subsystems if not isinstance(s, type) or not issubclass(s, Subsystem)
             ]
-            if invalid_optionables:
+            if invalid_subsystems:
                 raise TypeError(
-                    "The following items from the given optionables are not Optionable "
-                    "subclasses:\n\t{}".format("\n\t".join(str(i) for i in invalid_optionables))
+                    "The following items from the given subsystems are not Subsystem "
+                    "subclasses:\n\t{}".format("\n\t".join(str(i) for i in invalid_subsystems))
                 )
 
-            self._optionables.update(optionables)
+            self._subsystems.update(subsystems)
 
         def register_rules(self, rules):
             """Registers the given rules.
@@ -132,8 +132,8 @@ class BuildConfiguration:
             rules, union_rules = RuleIndex.create(rules).normalized_rules()
             self._rules.update(rules)
             self._union_rules.update(union_rules)
-            self.register_optionables(
-                rule.output_type for rule in self._rules if issubclass(rule.output_type, Optionable)
+            self.register_subsystems(
+                rule.output_type for rule in self._rules if issubclass(rule.output_type, Subsystem)
             )
 
         # NB: We expect the parameter to be Iterable[Type[Target]], but we can't be confident in this
@@ -167,7 +167,7 @@ class BuildConfiguration:
             )
             return BuildConfiguration(
                 registered_aliases=registered_aliases,
-                optionables=FrozenOrderedSet(self._optionables),
+                subsystems=FrozenOrderedSet(self._subsystems),
                 rules=FrozenOrderedSet(self._rules),
                 union_rules=FrozenOrderedSet(self._union_rules),
                 target_types=FrozenOrderedSet(self._target_types),

@@ -3,7 +3,6 @@
 
 import logging
 
-from pants.option.optionable import Optionable
 from pants.option.scope import ScopeInfo
 from pants.option.subsystem import Subsystem
 from pants.testutil.test_base import TestBase
@@ -23,10 +22,6 @@ class DummySubsystem(Subsystem):
 class DummyOptions:
     def for_scope(self, scope):
         return object()
-
-
-class DummyOptionable(Optionable):
-    options_scope = "foo"
 
 
 class UninitializedSubsystem(Subsystem):
@@ -58,9 +53,8 @@ class SubsystemTest(TestBase):
 
     def test_scoped_instance(self) -> None:
         # Verify that we get the same instance back every time.
-        task = DummyOptionable()
-        task_instance = DummySubsystem.scoped_instance(task)
-        self.assertIs(task_instance, DummySubsystem.scoped_instance(task))
+        task_instance = DummySubsystem.scoped_instance("bar")
+        self.assertIs(task_instance, DummySubsystem.scoped_instance("bar"))
 
     def test_invalid_subsystem_class(self):
         class NoScopeSubsystem(Subsystem):
@@ -232,14 +226,10 @@ class SubsystemTest(TestBase):
     def test_uninitialized_scoped_instance(self) -> None:
         Subsystem.reset()
 
-        class UninitializedOptional(Optionable):
-            options_scope = "optional"
-
-        optional = UninitializedOptional()
         with self.assertRaisesRegex(
             Subsystem.UninitializedSubsystemError, r"UninitializedSubsystem.*uninitialized-scope"
         ):
-            UninitializedSubsystem.scoped_instance(optional)
+            UninitializedSubsystem.scoped_instance("optional")
 
     def test_subsystem_dependencies_iter(self) -> None:
         class SubsystemB(Subsystem):

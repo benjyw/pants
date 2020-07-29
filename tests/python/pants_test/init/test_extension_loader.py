@@ -145,7 +145,7 @@ class LoaderTest(unittest.TestCase):
         registered_aliases = build_configuration.registered_aliases
         self.assertEqual(0, len(registered_aliases.objects))
         self.assertEqual(0, len(registered_aliases.context_aware_object_factories))
-        self.assertEqual(build_configuration.optionables, FrozenOrderedSet())
+        self.assertEqual(build_configuration.subsystems, FrozenOrderedSet())
         self.assertEqual(0, len(build_configuration.rules))
         self.assertEqual(0, len(build_configuration.target_types))
 
@@ -163,7 +163,7 @@ class LoaderTest(unittest.TestCase):
             self.assertEqual(DummyObject1, registered_aliases.objects["obj1"])
             self.assertEqual(DummyObject2, registered_aliases.objects["obj2"])
             self.assertEqual(
-                build_configuration.optionables, FrozenOrderedSet([DummySubsystem]),
+                build_configuration.subsystems, FrozenOrderedSet([DummySubsystem]),
             )
 
     def test_load_invalid_entrypoint(self):
@@ -286,7 +286,7 @@ class LoaderTest(unittest.TestCase):
         registered_aliases = build_configuration.registered_aliases
         self.assertEqual(DummyObject1, registered_aliases.objects["FROMPLUGIN1"])
         self.assertEqual(DummyObject2, registered_aliases.objects["FROMPLUGIN2"])
-        self.assertEqual(build_configuration.optionables, FrozenOrderedSet([DummySubsystem]))
+        self.assertEqual(build_configuration.subsystems, FrozenOrderedSet([DummySubsystem]))
 
     def test_rules(self):
         def backend_rules():
