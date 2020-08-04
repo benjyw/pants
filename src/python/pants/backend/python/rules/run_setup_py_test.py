@@ -8,9 +8,9 @@ from typing import Iterable, Type
 import pytest
 
 from pants.backend.python.python_artifact import PythonArtifact
+from pants.backend.python.rules import python_sources
 from pants.backend.python.rules.run_setup_py import (
     AmbiguousOwnerError,
-    AncestorInitPyFiles,
     DependencyOwner,
     ExportedTarget,
     ExportedTargetRequirements,
@@ -24,7 +24,6 @@ from pants.backend.python.rules.run_setup_py import (
     SetupPySources,
     SetupPySourcesRequest,
     generate_chroot,
-    get_ancestor_init_py,
     get_exporting_owner,
     get_owned_dependencies,
     get_requirements,
@@ -33,7 +32,7 @@ from pants.backend.python.rules.run_setup_py import (
 )
 from pants.backend.python.target_types import PythonBinary, PythonLibrary, PythonRequirementLibrary
 from pants.build_graph.build_file_aliases import BuildFileAliases
-from pants.core.target_types import Resources
+from pants.core.target_types import Files, Resources
 from pants.core.util_rules.determine_source_files import rules as determine_source_files_rules
 from pants.core.util_rules.strip_source_roots import rules as strip_source_roots_rules
 from pants.engine.addresses import Address
@@ -59,7 +58,7 @@ class TestSetupPyBase(TestBase):
 
     @classmethod
     def target_types(cls):
-        return [PythonBinary, PythonLibrary, PythonRequirementLibrary, Resources]
+        return [PythonBinary, PythonLibrary, PythonRequirementLibrary, Resources, Files]
 
     def tgt(self, addr: str) -> Target:
         return self.request_single_product(WrappedTarget, Params(Address.parse(addr))).target
@@ -72,12 +71,10 @@ class TestGenerateChroot(TestSetupPyBase):
             generate_chroot,
             get_sources,
             get_requirements,
-            get_ancestor_init_py,
             get_owned_dependencies,
             get_exporting_owner,
             RootRule(SetupPyChrootRequest),
-            *determine_source_files_rules(),
-            *strip_source_roots_rules(),
+            *python_sources.rules(),
         ]
 
     def assert_chroot(self, expected_files, expected_setup_kwargs, addr):
@@ -125,6 +122,8 @@ class TestGenerateChroot(TestSetupPyBase):
         self.create_file("src/python/foo/qux/qux.py", "")
         self.create_file("src/python/foo/resources/BUILD", 'resources(sources=["js/code.js"])')
         self.create_file("src/python/foo/resources/js/code.js", "")
+        self.create_file("files/BUILD", 'files(sources=["README.txt"])')
+        self.create_file("files/README.txt", "")
         self.create_file(
             "src/python/foo/BUILD",
             textwrap.dedent(
@@ -134,6 +133,7 @@ class TestGenerateChroot(TestSetupPyBase):
                         'src/python/foo/bar/baz',
                         'src/python/foo/qux',
                         'src/python/foo/resources',
+                        'files',
                     ],
                     provides=setup_py(
                         name='foo', version='1.2.3'
@@ -148,6 +148,7 @@ class TestGenerateChroot(TestSetupPyBase):
         self.create_file("src/python/foo/foo.py", "")
         self.assert_chroot(
             [
+                "src/files/README.txt",
                 "src/foo/qux/__init__.py",
                 "src/foo/qux/qux.py",
                 "src/foo/resources/js/code.js",
@@ -160,7 +161,7 @@ class TestGenerateChroot(TestSetupPyBase):
                 "name": "foo",
                 "version": "1.2.3",
                 "package_dir": {"": "src"},
-                "packages": ["foo", "foo.qux", "foo.resources.js"],
+                "packages": ["foo", "foo.qux"],
                 "namespace_packages": ["foo"],
                 "package_data": {"foo": ["resources/js/code.js"]},
                 "install_requires": ["baz==1.1.1"],
@@ -203,11 +204,11 @@ class TestGetSources(TestSetupPyBase):
     def rules(cls):
         return super().rules() + [
             get_sources,
-            get_ancestor_init_py,
             RootRule(SetupPySourcesRequest),
             RootRule(SourceRootConfig),
             *determine_source_files_rules(),
             *strip_source_roots_rules(),
+            *python_sources.rules(),
         ]
 
     def assert_sources(
@@ -285,7 +286,7 @@ class TestGetSources(TestSetupPyBase):
                 "foo/__init__.py",
                 "foo/resources/js/code.js",
             ],
-            expected_packages=["foo", "foo.bar", "foo.bar.baz", "foo.qux", "foo.resources.js"],
+            expected_packages=["foo", "foo.bar", "foo.bar.baz", "foo.qux"],
             expected_namespace_packages=["foo.bar"],
             expected_package_data={"foo": ("resources/js/code.js",)},
             addrs=["src/python/foo/bar/baz:baz1", "src/python/foo/qux", "src/python/foo/resources"],
@@ -301,7 +302,7 @@ class TestGetSources(TestSetupPyBase):
                 "foo/__init__.py",
                 "foo/resources/js/code.js",
             ],
-            expected_packages=["foo", "foo.bar", "foo.bar.baz", "foo.qux", "foo.resources.js"],
+            expected_packages=["foo", "foo.bar", "foo.bar.baz", "foo.qux"],
             expected_namespace_packages=["foo.bar"],
             expected_package_data={"foo": ("resources/js/code.js",)},
             addrs=[
@@ -385,75 +386,6 @@ class TestGetRequirements(TestSetupPyBase):
 
         self.assert_requirements(["ext1==1.22.333", "ext2==4.5.6"], "src/python/foo/bar")
         self.assert_requirements(["ext3==0.0.1", "bar==9.8.7"], "src/python/foo/corge")
-
-
-class TestGetAncestorInitPy(TestSetupPyBase):
-    @classmethod
-    def rules(cls):
-        return super().rules() + [
-            get_ancestor_init_py,
-            RootRule(Targets),
-            RootRule(SourceRootConfig),
-            *determine_source_files_rules(),
-        ]
-
-    def assert_ancestor_init_py(
-        self, expected_init_pys: Iterable[str], addrs: Iterable[str]
-    ) -> None:
-        ancestor_init_py_files = self.request_single_product(
-            AncestorInitPyFiles,
-            Params(
-                Targets([self.tgt(addr) for addr in addrs]),
-                create_options_bootstrapper(args=["--source-root-patterns=src/python"]),
-            ),
-        )
-        snapshots = [
-            self.request_single_product(Snapshot, Params(digest))
-            for digest in ancestor_init_py_files.digests
-        ]
-        init_py_files_found = set([file for snapshot in snapshots for file in snapshot.files])
-        # NB: Doesn't include the root __init__.py or the missing src/python/foo/bar/__init__.py.
-        assert sorted(expected_init_pys) == sorted(init_py_files_found)
-
-    def test_get_ancestor_init_py(self) -> None:
-        # NB: src/python/foo/bar/baz/qux/__init__.py is a target's source.
-        self.create_file("src/python/foo/bar/baz/qux/BUILD", "python_library()")
-        self.create_file("src/python/foo/bar/baz/qux/qux.py", "")
-        self.create_file("src/python/foo/bar/baz/qux/__init__.py", "")
-        self.create_file("src/python/foo/bar/baz/__init__.py", "")
-        # NB: No src/python/foo/bar/__init__.py.
-        # NB: src/python/foo/corge/__init__.py is not any target's source.
-        self.create_file("src/python/foo/corge/BUILD", 'python_library(sources=["corge.py"])')
-        self.create_file("src/python/foo/corge/corge.py", "")
-        self.create_file("src/python/foo/corge/__init__.py", "")
-        self.create_file("src/python/foo/__init__.py", "")
-        self.create_file("src/python/__init__.py", "")
-        self.create_file("src/python/foo/resources/BUILD", 'resources(sources=["style.css"])')
-        self.create_file("src/python/foo/resources/style.css", "")
-        # NB: A stray __init__.py in a resources-only dir.
-        self.create_file("src/python/foo/resources/__init__.py", "")
-
-        # NB: None of these should include the root src/python/__init__.py, the missing
-        # src/python/foo/bar/__init__.py, or the stray src/python/foo/resources/__init__.py.
-        self.assert_ancestor_init_py(
-            ["foo/bar/baz/qux/__init__.py", "foo/bar/baz/__init__.py", "foo/__init__.py"],
-            ["src/python/foo/bar/baz/qux"],
-        )
-        self.assert_ancestor_init_py([], ["src/python/foo/resources"])
-        self.assert_ancestor_init_py(
-            ["foo/corge/__init__.py", "foo/__init__.py"],
-            ["src/python/foo/corge", "src/python/foo/resources"],
-        )
-
-        self.assert_ancestor_init_py(
-            [
-                "foo/bar/baz/qux/__init__.py",
-                "foo/bar/baz/__init__.py",
-                "foo/corge/__init__.py",
-                "foo/__init__.py",
-            ],
-            ["src/python/foo/bar/baz/qux", "src/python/foo/corge"],
-        )
 
 
 class TestGetOwnedDependencies(TestSetupPyBase):

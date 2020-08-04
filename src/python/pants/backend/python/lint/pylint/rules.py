@@ -7,21 +7,19 @@ from dataclasses import dataclass
 from typing import Iterable, Tuple
 
 from pants.backend.python.lint.pylint.subsystem import Pylint
-from pants.backend.python.rules import download_pex_bin, pex, python_sources
+from pants.backend.python.rules import pex, python_sources
 from pants.backend.python.rules.pex import (
     Pex,
     PexInterpreterConstraints,
+    PexProcess,
     PexRequest,
     PexRequirements,
 )
 from pants.backend.python.rules.python_sources import (
-    StrippedPythonSources,
-    StrippedPythonSourcesRequest,
-    UnstrippedPythonSources,
-    UnstrippedPythonSourcesRequest,
+    PythonSourceFiles,
+    PythonSourceFilesRequest,
+    StrippedPythonSourceFiles,
 )
-from pants.backend.python.subsystems import python_native_code, subprocess_environment
-from pants.backend.python.subsystems.subprocess_environment import SubprocessEnvironment
 from pants.backend.python.target_types import (
     PythonInterpreterCompatibility,
     PythonRequirementsField,
@@ -39,7 +37,7 @@ from pants.engine.fs import (
     MergeDigests,
     PathGlobs,
 )
-from pants.engine.process import FallibleProcessResult, Process
+from pants.engine.process import FallibleProcessResult
 from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import (
     Dependencies,
@@ -107,12 +105,7 @@ def generate_args(*, specified_source_files: SourceFiles, pylint: Pylint) -> Tup
 
 
 @rule
-async def pylint_lint_partition(
-    partition: PylintPartition,
-    pylint: Pylint,
-    python_setup: PythonSetup,
-    subprocess_environment: SubprocessEnvironment,
-) -> LintResult:
+async def pylint_lint_partition(partition: PylintPartition, pylint: Pylint) -> LintResult:
     # We build one PEX with Pylint requirements and another with all direct 3rd-party dependencies.
     # Splitting this into two PEXes gives us finer-grained caching. We then merge via `--pex-path`.
     plugin_requirements = PexRequirements.create_from_requirement_fields(
@@ -166,11 +159,10 @@ async def pylint_lint_partition(
     )
 
     prepare_plugin_sources_request = Get(
-        StrippedPythonSources, StrippedPythonSourcesRequest(partition.plugin_targets),
+        StrippedPythonSourceFiles, PythonSourceFilesRequest(partition.plugin_targets),
     )
     prepare_python_sources_request = Get(
-        UnstrippedPythonSources,
-        UnstrippedPythonSourcesRequest(partition.targets_with_dependencies),
+        PythonSourceFiles, PythonSourceFilesRequest(partition.targets_with_dependencies),
     )
     specified_source_files_request = Get(
         SourceFiles,
@@ -198,7 +190,10 @@ async def pylint_lint_partition(
     )
 
     prefixed_plugin_sources = (
-        await Get(Digest, AddPrefix(prepared_plugin_sources.snapshot.digest, "__plugins"))
+        await Get(
+            Digest,
+            AddPrefix(prepared_plugin_sources.stripped_source_files.snapshot.digest, "__plugins"),
+        )
         if pylint.source_plugins
         else EMPTY_DIGEST
     )
@@ -221,7 +216,7 @@ async def pylint_lint_partition(
                 pylint_runner_pex.digest,
                 config_digest,
                 prefixed_plugin_sources,
-                prepared_python_sources.snapshot.digest,
+                prepared_python_sources.source_files.snapshot.digest,
             )
         ),
     )
@@ -230,18 +225,19 @@ async def pylint_lint_partition(
         sorted(field_set.address.reference() for field_set in partition.field_sets)
     )
 
-    process = pylint_runner_pex.create_process(
-        python_setup=python_setup,
-        subprocess_environment=subprocess_environment,
-        pex_path="./pylint_runner.pex",
-        env={"PEX_EXTRA_SYS_PATH": ":".join(pythonpath)},
-        pex_args=generate_args(specified_source_files=specified_source_files, pylint=pylint),
-        input_digest=input_digest,
-        description=(
-            f"Run Pylint on {pluralize(len(partition.field_sets), 'target')}: {address_references}."
+    result = await Get(
+        FallibleProcessResult,
+        PexProcess(
+            pylint_runner_pex,
+            argv=generate_args(specified_source_files=specified_source_files, pylint=pylint),
+            input_digest=input_digest,
+            extra_env={"PEX_EXTRA_SYS_PATH": ":".join(pythonpath)},
+            description=(
+                f"Run Pylint on {pluralize(len(partition.field_sets), 'target')}: "
+                f"{address_references}."
+            ),
         ),
     )
-    result = await Get(FallibleProcessResult, Process, process)
     return LintResult.from_fallible_process_result(result, linter_name="Pylint")
 
 
@@ -292,7 +288,7 @@ async def pylint_lint(
 
     partitions = (
         PylintPartition(
-            tuple(sorted(target_setups, key=lambda target_setup: target_setup.field_set.address)),
+            tuple(sorted(target_setups, key=lambda tgt_setup: tgt_setup.field_set.address)),
             interpreter_constraints,
             Targets(plugin_targets.closure),
         )
@@ -310,11 +306,8 @@ def rules():
     return [
         *collect_rules(),
         UnionRule(LintRequest, PylintRequest),
-        *download_pex_bin.rules(),
         *determine_source_files.rules(),
         *pex.rules(),
         *python_sources.rules(),
         *strip_source_roots.rules(),
-        *python_native_code.rules(),
-        *subprocess_environment.rules(),
     ]

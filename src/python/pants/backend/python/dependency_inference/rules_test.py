@@ -16,7 +16,7 @@ from pants.backend.python.target_types import (
     PythonTests,
 )
 from pants.build_graph.build_file_aliases import BuildFileAliases
-from pants.core.util_rules import strip_source_roots
+from pants.core.util_rules import determine_source_files, strip_source_roots
 from pants.engine.addresses import Address
 from pants.engine.rules import RootRule
 from pants.engine.target import InferredDependencies, WrappedTarget
@@ -37,6 +37,7 @@ class PythonDependencyInferenceTest(TestBase):
         return (
             *super().rules(),
             *strip_source_roots.rules(),
+            *determine_source_files.rules(),
             *dependency_inference_rules(),
             all_roots,
             RootRule(InferPythonDependencies),
@@ -50,11 +51,7 @@ class PythonDependencyInferenceTest(TestBase):
 
     def test_infer_python_imports(self) -> None:
         options_bootstrapper = create_options_bootstrapper(
-            args=[
-                "--backend-packages=pants.backend.python",
-                "--source-root-patterns=src/python",
-                "--python-infer-imports",
-            ]
+            args=["--backend-packages=pants.backend.python", "--source-root-patterns=src/python"]
         )
         self.add_to_build_file(
             "3rdparty/python",

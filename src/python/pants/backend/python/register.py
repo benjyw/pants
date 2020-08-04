@@ -11,11 +11,12 @@ from pants.backend.python.pants_requirement import PantsRequirement
 from pants.backend.python.python_artifact import PythonArtifact
 from pants.backend.python.python_requirements import PythonRequirements
 from pants.backend.python.rules import (
+    ancestor_files,
     coverage,
     create_python_binary,
-    download_pex_bin,
-    inject_ancestor_files,
     pex,
+    pex_cli,
+    pex_environment,
     pex_from_targets,
     pytest_runner,
     python_sources,
@@ -52,11 +53,12 @@ def build_file_aliases():
 def rules():
     return (
         *coverage.rules(),
-        *download_pex_bin.rules(),
-        *inject_ancestor_files.rules(),
+        *ancestor_files.rules(),
         *python_sources.rules(),
         *dependency_inference_rules.rules(),
         *pex.rules(),
+        *pex_cli.rules(),
+        *pex_environment.rules(),
         *pex_from_targets.rules(),
         *pytest_runner.rules(),
         *create_python_binary.rules(),
