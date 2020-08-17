@@ -27,6 +27,7 @@ from pants.backend.python.targets.unpacked_whls import UnpackedWheels
 from pants.backend.python.tasks.build_local_python_distributions import (
     BuildLocalPythonDistributions,
 )
+from pants.backend.python.tasks.custom import CompileCython, CompileCythonCreate
 from pants.backend.python.tasks.gather_sources import GatherSources
 from pants.backend.python.tasks.local_python_distribution_artifact import (
     LocalPythonDistributionArtifact,
@@ -43,6 +44,8 @@ from pants.backend.python.tasks.setup_py import SetupPy
 from pants.backend.python.tasks.unpack_wheels import UnpackWheels
 from pants.build_graph.build_file_aliases import BuildFileAliases
 from pants.build_graph.resources import Resources
+from pants.goal.error import GoalError
+from pants.goal.goal import Goal
 from pants.goal.task_registrar import TaskRegistrar as task
 from pants.python.pex_build_util import PexBuilderWrapper
 from pants.python.python_requirement import PythonRequirement
@@ -59,6 +62,7 @@ def global_subsystems():
 def build_file_aliases():
     return BuildFileAliases(
         targets={
+            "compile_cython": CompileCython,
             PythonApp.alias(): PythonApp,
             PythonBinary.alias(): PythonBinary,
             PythonLibrary.alias(): PythonLibrary,
@@ -80,7 +84,26 @@ def build_file_aliases():
     )
 
 
+def _find_gather_sources():
+    for goal in Goal.all():
+        for task_name, task_type in goal.task_items():
+            if issubclass(task_type, GatherSources):
+                yield goal.name, task_name
+
 def register_goals():
+    gather_sources_registrations = list(_find_gather_sources())
+    if len(gather_sources_registrations) == 0:
+        raise GoalError(
+            'Failed to find a registration for the %s task to install %s before.'
+            % (GatherSources, CompileCythonCreate)
+        )
+
+    for gather_sources_goal, gather_sources_task in gather_sources_registrations:
+        task(name='compile-cython', action=CompileCythonCreate).install(
+            goal=gather_sources_goal,
+            before=gather_sources_task
+        )
+
     task(name="interpreter", action=SelectInterpreter).install("pyprep")
     task(name="build-local-dists", action=BuildLocalPythonDistributions).install("pyprep")
     task(name="requirements", action=ResolveRequirements).install("pyprep")

@@ -11,3 +11,21 @@ python_library(
     '3rdparty/python:ansicolors',
   ],
 )
+
+
+compile_cython(
+  name='compile-plugins',
+  sources=['setup.py', 'example.cpp'],
+  output='wrappers.cpython-36m-x86_64-linux-gnu.so',
+  dependencies=[
+    '3rdparty/python:cython'
+  ]
+)
+
+python_library(
+  name='example',
+  sources=['example/**/*.py', '!example/files/**/*.py'],
+  dependencies=[
+    ':compile-plugins',
+  ]
+)
