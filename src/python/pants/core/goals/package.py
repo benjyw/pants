@@ -18,18 +18,18 @@ logger = logging.getLogger(__name__)
 
 @union
 class PackageFieldSet(FieldSet, metaclass=ABCMeta):
-    """The fields necessary to build an asset from a target."""
+    """The fields necessary to build an artifact from a target."""
 
 
 @dataclass(frozen=True)
 class BuiltPackage:
     digest: Digest
-    relpath: str
+    relpath: str  # Note: Used only for logging. Should reflect the package's path in the digest.
     extra_log_info: Optional[str] = None
 
 
 class PackageSubsystem(GoalSubsystem):
-    """Package an asset and put in `--distdir`, such as an archive, PEX, wheel, AWS Lambda, etc."""
+    """Package an artifact (e.g., an archive, PEX, wheel, or AWS Lambda)."""
 
     name = "package"
 
