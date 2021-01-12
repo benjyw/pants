@@ -14,7 +14,7 @@ from pants.backend.python.goals import (
     pytest_runner,
     repl,
     run_pex_binary,
-    setup_py,
+    setup_py, init,
 )
 from pants.backend.python.macros.pants_requirement import PantsRequirement
 from pants.backend.python.macros.pipenv_requirements import PipenvRequirements
@@ -55,6 +55,7 @@ def build_file_aliases():
 def rules():
     return (
         *coverage_py.rules(),
+        *init.rules(),
         *ancestor_files.rules(),
         *extract_pex.rules(),
         *python_sources.rules(),
