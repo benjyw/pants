@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from pants.backend.python.dependency_inference.import_parser import ParsedPythonImports, \
     ParsePythonImportsRequest
+from pants.backend.python.dependency_inference.python_stdlib.combined import combined_stdlib
 from pants.backend.python.target_types import PythonSources
 from pants.backend.python.util_rules.pex import PexInterpreterConstraints
 from pants.build_graph.address import Address
@@ -48,6 +49,9 @@ async def find_putative_source_roots(
     all_imports = set()
     for imports in imports_iter:
         all_imports.update(imports.explicit_imports)
+
+    logger.error(f"XXXXX {all_imports}")
+    all_imports -= set(combined_stdlib)
 
     return PutativeSourceRoots([
         PutativeSourceRoot(path=f"Found {len(all_py_files.files)} .py files"),
