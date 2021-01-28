@@ -12,11 +12,37 @@ from pants.engine.internals.selectors import Get, MultiGet
 from pants.engine.rules import collect_rules, goal_rule
 from pants.engine.unions import union, UnionMembership
 from pants.source.source_root import AllSourceRoots
+from pants.util.frozendict import FrozenDict
+
+
+@union
+class PutativeTargetsRequest(metaclass=ABCMeta):
+    pass
 
 
 @union
 class PutativeSourceRootsRequest(metaclass=ABCMeta):
     pass
+
+
+@dataclass(frozen=True, order=True)
+class PutativeTarget:
+    """A potential target to add, detected by various heuristics."""
+    path: str
+    name: str
+    type: str
+    kwargs: FrozenDict[str, str]
+
+
+class PutativeTargets(DeduplicatedCollection[PutativeTarget]):
+    sort_input = True
+
+    @classmethod
+    def merge(cls, tgts_iters: Iterable["PutativeTargets"]) -> "PutativeTargets":
+        all_tgts = []
+        for tgts in tgts_iters:
+            all_tgts.extend(tgts)
+        return cls(all_tgts)
 
 
 @dataclass(frozen=True, order=True)
@@ -56,6 +82,14 @@ async def init(
     console: Console,
     union_membership: UnionMembership,
 ) -> Init:
+    putative_target_request_types = union_membership[PutativeTargetsRequest]
+    putative_target_reqs = [req_type() for req_type in putative_target_request_types]
+    putative_targets_results = await MultiGet(
+        Get(PutativeTargets, PutativeTargetsRequest, req)
+        for req in putative_target_reqs
+    )
+    all_putative_targets = PutativeTargets.merge(putative_targets_results)
+
     putative_source_root_request_types = union_membership[PutativeSourceRootsRequest]
     putative_source_root_reqs = [
         req_type()
@@ -68,8 +102,11 @@ async def init(
     all_putative_source_roots = PutativeSourceRoots.merge(putative_source_root_results)
 
     with init_subsystem.line_oriented(console) as print_stdout:
+        for ptgt in all_putative_targets:
+            print_stdout(f"TARGET: {ptgt.path}:{ptgt.name}")
+
         for res in all_putative_source_roots:
-            print("XXXX " + res.path)
+            print_stdout("XXXX " + res.path)
         for src_root in asr:
             print_stdout(src_root.path or ".")
     return Init(0)
