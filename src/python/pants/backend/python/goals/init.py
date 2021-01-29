@@ -5,7 +5,7 @@ import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Iterable, Dict, List
+from typing import Iterable, Dict, List, Set
 
 from pants.backend.python.dependency_inference.import_parser import ParsedPythonImports, \
     ParsePythonImportsRequest
@@ -41,14 +41,15 @@ class PutativePythonSourceRootsRequest:
     pass
 
 
-def classify_source_files(paths: Iterable[str]) -> Dict[str, List[str]]:
+def classify_source_files(paths: Iterable[str]) -> Dict[str, Set[str]]:
     """Returns a dict of target type alias -> files that belong to targets of that type."""
     tests_filespec = Filespec(includes=PythonTestsSources.default)
-    test_files = set(matches_filespec(tests_filespec, paths=paths))
+    test_filenames = set(matches_filespec(tests_filespec, paths=[os.path.basename(path) for path in paths]))
+    test_files = {path for path in paths if os.path.basename(path) in test_filenames}
     library_files = set(paths) - test_files
     return {
-        PythonTests.alias: list(test_files),
-        PythonLibrary.alias: list(library_files)
+        PythonTests.alias: test_files,
+        PythonLibrary.alias: library_files
     }
 
 
