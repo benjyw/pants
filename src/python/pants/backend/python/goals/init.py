@@ -3,13 +3,16 @@
 
 import logging
 import os
+from collections import defaultdict
 from dataclasses import dataclass
+from typing import Iterable, Dict, List
 
 from pants.backend.python.dependency_inference.import_parser import ParsedPythonImports, \
     ParsePythonImportsRequest
 from pants.backend.python.dependency_inference.module_mapper import ThirdPartyPythonModuleMapping
 from pants.backend.python.dependency_inference.python_stdlib.combined import combined_stdlib
-from pants.backend.python.target_types import PythonSources
+from pants.backend.python.target_types import PythonSources, PythonTestsSources, PythonTests, \
+    PythonLibrary
 from pants.backend.python.util_rules.pex import PexInterpreterConstraints
 from pants.base.specs import AddressSpecs, DescendantAddresses
 from pants.build_graph.address import Address
@@ -22,6 +25,7 @@ from pants.engine.rules import rule, collect_rules
 from pants.engine.target import Targets, Sources
 from pants.engine.unions import UnionRule
 from pants.python.python_setup import PythonSetup
+from pants.source.filespec import Filespec, matches_filespec
 from pants.util.frozendict import FrozenDict
 
 logger = logging.getLogger(__name__)
@@ -37,8 +41,28 @@ class PutativePythonSourceRootsRequest:
     pass
 
 
+def classify_source_files(paths: Iterable[str]) -> Dict[str, List[str]]:
+    """Returns a dict of target type alias -> files that belong to targets of that type."""
+    tests_filespec = Filespec(includes=PythonTestsSources.default)
+    test_files = set(matches_filespec(tests_filespec, paths=paths))
+    library_files = set(paths) - test_files
+    return {
+        PythonTests.alias: list(test_files),
+        PythonLibrary.alias: list(library_files)
+    }
+
+
+def group_by_dir(paths: Iterable[str]) -> Dict[str, List[str]]:
+    """For a list of file paths, returns a dict of directory path -> files in that dir."""
+    ret = defaultdict(list)
+    for path in paths:
+        dirname, filename = os.path.split(path)
+        ret[dirname].append(filename)
+    return ret
+
+
 @rule
-async def find_unowned_sources(
+async def find_putative_targets(
         req: PutativePythonTargetsRequest,
 ) -> PutativeTargets:
     all_tgts = await Get(Targets, AddressSpecs([DescendantAddresses("")]))
@@ -48,13 +72,15 @@ async def find_unowned_sources(
 
     all_py_files = await Get(Paths, PathGlobs(["**/*.py"]))
     unowned_py_files = set(all_py_files.files) - set(all_owned_sources.files)
-
-    logger.error(f"UNOWNED {unowned_py_files}")
-
-    return PutativeTargets([
-        PutativeTarget(type="python_library", name="lib", path=path, kwargs=FrozenDict({}))
-        for path in unowned_py_files
-    ])
+    classified_unowned_py_files = classify_source_files(unowned_py_files)
+    pts = []
+    for tgt_type, paths in classified_unowned_py_files.items():
+        for dirname, filenames in group_by_dir(paths).items():
+            name = "tests" if tgt_type == PythonTests.alias else os.path.basename(dirname)
+            pts.append(PutativeTarget(type_alias=tgt_type, path=dirname,
+                                      name=name, sources=tuple(sorted(filenames)),
+                                      extra_kwargs=FrozenDict()))
+    return PutativeTargets(pts)
 
 
 @rule

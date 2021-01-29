@@ -3,13 +3,15 @@
 
 from abc import ABCMeta
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Tuple
 
+from pants.base.specs import AddressSpecs, AddressLiteralSpec, DescendantAddresses
 from pants.engine.collection import DeduplicatedCollection
 from pants.engine.console import Console
 from pants.engine.goal import Goal, GoalSubsystem, LineOriented
 from pants.engine.internals.selectors import Get, MultiGet
 from pants.engine.rules import collect_rules, goal_rule
+from pants.engine.target import Targets
 from pants.engine.unions import union, UnionMembership
 from pants.source.source_root import AllSourceRoots
 from pants.util.frozendict import FrozenDict
@@ -28,10 +30,11 @@ class PutativeSourceRootsRequest(metaclass=ABCMeta):
 @dataclass(frozen=True, order=True)
 class PutativeTarget:
     """A potential target to add, detected by various heuristics."""
+    type_alias: str
     path: str
     name: str
-    type: str
-    kwargs: FrozenDict[str, str]
+    sources: Tuple[str, ...]
+    extra_kwargs: FrozenDict[str, str]
 
 
 class PutativeTargets(DeduplicatedCollection[PutativeTarget]):
@@ -89,26 +92,30 @@ async def init(
         for req in putative_target_reqs
     )
     all_putative_targets = PutativeTargets.merge(putative_targets_results)
+    all_tgts = await Get(Targets, AddressSpecs([DescendantAddresses("")]))
+    addr_to_tgt = {tgt.address.spec: tgt for tgt in all_tgts}
+    conflicting_targets = await Get(Targets, AddressSpecs(
+        [AddressLiteralSpec(ptgt.path, ptgt.name) for ptgt in all_putative_targets]))
 
-    putative_source_root_request_types = union_membership[PutativeSourceRootsRequest]
-    putative_source_root_reqs = [
-        req_type()
-        for req_type in putative_source_root_request_types
-    ]
-    putative_source_root_results = await MultiGet(
-        Get(PutativeSourceRoots, PutativeSourceRootsRequest, req)
-        for req in putative_source_root_reqs
-    )
-    all_putative_source_roots = PutativeSourceRoots.merge(putative_source_root_results)
+    # putative_source_root_request_types = union_membership[PutativeSourceRootsRequest]
+    # putative_source_root_reqs = [
+    #     req_type()
+    #     for req_type in putative_source_root_request_types
+    # ]
+    # putative_source_root_results = await MultiGet(
+    #     Get(PutativeSourceRoots, PutativeSourceRootsRequest, req)
+    #     for req in putative_source_root_reqs
+    # )
+    # all_putative_source_roots = PutativeSourceRoots.merge(putative_source_root_results)
 
     with init_subsystem.line_oriented(console) as print_stdout:
         for ptgt in all_putative_targets:
             print_stdout(f"TARGET: {ptgt.path}:{ptgt.name}")
 
-        for res in all_putative_source_roots:
-            print_stdout("XXXX " + res.path)
-        for src_root in asr:
-            print_stdout(src_root.path or ".")
+        # for res in all_putative_source_roots:
+        #     print_stdout("XXXX " + res.path)
+        # for src_root in asr:
+        #     print_stdout(src_root.path or ".")
     return Init(0)
 
 
