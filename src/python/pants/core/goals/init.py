@@ -3,7 +3,7 @@
 
 from abc import ABCMeta
 from dataclasses import dataclass
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, Union
 
 from pants.base.specs import AddressSpecs, AddressLiteralSpec, DescendantAddresses
 from pants.engine.collection import DeduplicatedCollection
@@ -34,7 +34,11 @@ class PutativeTarget:
     path: str
     name: str
     sources: Tuple[str, ...]
-    extra_kwargs: FrozenDict[str, str]
+    # Note that we generate the BUILD file target entry exclusively from these kwargs, not from
+    # the fields above, which are broken out for other uses.
+    # This allows the creator of instances of this class to control whether the generated
+    # target should assume default kwarg values or provide them explicitly.
+    kwargs: FrozenDict[str, Union[str, int, bool, Tuple[str, ...]]]
 
 
 class PutativeTargets(DeduplicatedCollection[PutativeTarget]):

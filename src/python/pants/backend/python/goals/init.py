@@ -77,9 +77,10 @@ async def find_putative_targets(
     for tgt_type, paths in classified_unowned_py_files.items():
         for dirname, filenames in group_by_dir(paths).items():
             name = "tests" if tgt_type == PythonTests.alias else os.path.basename(dirname)
+            kwargs = {"name": name} if  tgt_type == PythonTests.alias else {}
             pts.append(PutativeTarget(type_alias=tgt_type, path=dirname,
                                       name=name, sources=tuple(sorted(filenames)),
-                                      extra_kwargs=FrozenDict()))
+                                      kwargs=FrozenDict(kwargs)))
     return PutativeTargets(pts)
 
 
