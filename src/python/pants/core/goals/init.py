@@ -92,10 +92,12 @@ async def init(
         for req in putative_target_reqs
     )
     all_putative_targets = PutativeTargets.merge(putative_targets_results)
-    all_tgts = await Get(Targets, AddressSpecs([DescendantAddresses("")]))
-    addr_to_tgt = {tgt.address.spec: tgt for tgt in all_tgts}
-    conflicting_targets = await Get(Targets, AddressSpecs(
-        [AddressLiteralSpec(ptgt.path, ptgt.name) for ptgt in all_putative_targets]))
+    all_existing_tgts = await Get(Targets, AddressSpecs([DescendantAddresses("")]))
+    addr_to_existing_tgt = {tgt.address.spec: tgt for tgt in all_existing_tgts}
+    conflicting_putative_tgts, nonconflicting_putative_tgts = [], []
+    for ptgt in all_putative_targets:
+        (conflicting_putative_tgts if ptgt.path in addr_to_existing_tgt
+         else nonconflicting_putative_tgts).append(ptgt)
 
     # putative_source_root_request_types = union_membership[PutativeSourceRootsRequest]
     # putative_source_root_reqs = [
@@ -109,8 +111,10 @@ async def init(
     # all_putative_source_roots = PutativeSourceRoots.merge(putative_source_root_results)
 
     with init_subsystem.line_oriented(console) as print_stdout:
-        for ptgt in all_putative_targets:
-            print_stdout(f"TARGET: {ptgt.path}:{ptgt.name}")
+        for ptgt in nonconflicting_putative_tgts:
+            print_stdout(f"ADDING TARGET: {ptgt.path}:{ptgt.name}")
+        for ptgt in conflicting_putative_tgts:
+            print_stdout(f"ADD THESE SOURCES TO {ptgt.path}:{ptgt.name}: {','.join(ptgt.sources)}")
 
         # for res in all_putative_source_roots:
         #     print_stdout("XXXX " + res.path)
