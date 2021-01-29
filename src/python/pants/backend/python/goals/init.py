@@ -53,12 +53,12 @@ def classify_source_files(paths: Iterable[str]) -> Dict[str, Set[str]]:
     }
 
 
-def group_by_dir(paths: Iterable[str]) -> Dict[str, List[str]]:
+def group_by_dir(paths: Iterable[str]) -> Dict[str, Set[str]]:
     """For a list of file paths, returns a dict of directory path -> files in that dir."""
-    ret = defaultdict(list)
+    ret = defaultdict(set)
     for path in paths:
         dirname, filename = os.path.split(path)
-        ret[dirname].append(filename)
+        ret[dirname].add(filename)
     return ret
 
 
