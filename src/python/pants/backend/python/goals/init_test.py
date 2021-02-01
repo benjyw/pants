@@ -27,3 +27,15 @@ def test_group_by_dir():
         "foo/bar": {"__init__.py", "baz1.py", "baz1_test.py", "baz2.py"},
         "foo/bar/qux": {"quux1.py"},
     } == group_by_dir(paths)
+
+
+def test_find_putative_targets():
+    dir_structure = {
+        "src/python/foo/__init__.py",
+        "src/python/foo/bar/__init__.py",
+        "src/python/foo/bar/baz1.py",
+        "src/python/foo/bar/baz1_test.py",
+        "src/python/foo/bar/baz2.py",
+        "src/python/foo/bar/baz2_test.py",
+        "src/python/foo/bar/baz3.py",
+    }
