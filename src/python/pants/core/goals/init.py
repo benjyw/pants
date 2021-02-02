@@ -3,9 +3,9 @@
 
 from abc import ABCMeta
 from dataclasses import dataclass
-from typing import Iterable, Tuple, Union
+from typing import Iterable, Tuple, Union, Mapping
 
-from pants.base.specs import AddressSpecs, AddressLiteralSpec, DescendantAddresses
+from pants.base.specs import AddressSpecs, DescendantAddresses
 from pants.engine.collection import DeduplicatedCollection
 from pants.engine.console import Console
 from pants.engine.goal import Goal, GoalSubsystem, LineOriented
@@ -15,6 +15,7 @@ from pants.engine.target import Targets
 from pants.engine.unions import union, UnionMembership
 from pants.source.source_root import AllSourceRoots
 from pants.util.frozendict import FrozenDict
+from pants.util.meta import frozen_after_init
 
 
 @union
@@ -27,18 +28,29 @@ class PutativeSourceRootsRequest(metaclass=ABCMeta):
     pass
 
 
-@dataclass(frozen=True, order=True)
+@frozen_after_init
+@dataclass(order=True, unsafe_hash=True)
 class PutativeTarget:
     """A potential target to add, detected by various heuristics."""
-    type_alias: str
+    # Note that field order is such that the dataclass order will be by address (path+name).
     path: str
     name: str
+    type_alias: str
     sources: Tuple[str, ...]
     # Note that we generate the BUILD file target entry exclusively from these kwargs, not from
     # the fields above, which are broken out for other uses.
     # This allows the creator of instances of this class to control whether the generated
     # target should assume default kwarg values or provide them explicitly.
     kwargs: FrozenDict[str, Union[str, int, bool, Tuple[str, ...]]]
+
+    def __init__(self, path: str, name: str, type_alias: str, sources: Iterable[str],
+                 *,
+                 kwargs: Mapping[str, Union[str, int, bool, Tuple[str, ...]]]=None) -> None:
+        self.path = path
+        self.name = name
+        self.type_alias = type_alias
+        self.sources = tuple(sources)
+        self.kwargs = FrozenDict(kwargs or {})
 
 
 class PutativeTargets(DeduplicatedCollection[PutativeTarget]):

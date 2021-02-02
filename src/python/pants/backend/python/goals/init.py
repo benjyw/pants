@@ -5,7 +5,7 @@ import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Iterable, Dict, List, Set
+from typing import Iterable, Dict, Set
 
 from pants.backend.python.dependency_inference.import_parser import ParsedPythonImports, \
     ParsePythonImportsRequest
@@ -14,7 +14,7 @@ from pants.backend.python.dependency_inference.python_stdlib.combined import com
 from pants.backend.python.target_types import PythonSources, PythonTestsSources, PythonTests, \
     PythonLibrary
 from pants.backend.python.util_rules.pex import PexInterpreterConstraints
-from pants.base.specs import AddressSpecs, DescendantAddresses
+from pants.base.specs import AddressSpecs, MaybeEmptyDescendantAddresses
 from pants.build_graph.address import Address
 from pants.core.goals.init import PutativeSourceRoots, PutativeSourceRootsRequest, \
     PutativeSourceRoot, PutativeTargetsRequest, PutativeTargets, PutativeTarget
@@ -26,7 +26,6 @@ from pants.engine.target import Targets, Sources
 from pants.engine.unions import UnionRule
 from pants.python.python_setup import PythonSetup
 from pants.source.filespec import Filespec, matches_filespec
-from pants.util.frozendict import FrozenDict
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ def group_by_dir(paths: Iterable[str]) -> Dict[str, Set[str]]:
 async def find_putative_targets(
         req: PutativePythonTargetsRequest,
 ) -> PutativeTargets:
-    all_tgts = await Get(Targets, AddressSpecs([DescendantAddresses("")]))
+    all_tgts = await Get(Targets, AddressSpecs([MaybeEmptyDescendantAddresses("")]))
     all_owned_sources = await Get(
         SourceFiles, SourceFilesRequest([tgt.get(Sources) for tgt in all_tgts])
     )
@@ -79,9 +78,7 @@ async def find_putative_targets(
         for dirname, filenames in group_by_dir(paths).items():
             name = "tests" if tgt_type == PythonTests.alias else os.path.basename(dirname)
             kwargs = {"name": name} if  tgt_type == PythonTests.alias else {}
-            pts.append(PutativeTarget(type_alias=tgt_type, path=dirname,
-                                      name=name, sources=tuple(sorted(filenames)),
-                                      kwargs=FrozenDict(kwargs)))
+            pts.append(PutativeTarget(dirname, name, tgt_type, sorted(filenames), kwargs=kwargs))
     return PutativeTargets(pts)
 
 

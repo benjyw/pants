@@ -104,8 +104,11 @@ class SiblingAddresses(AddressGlobSpec):
 
 
 @dataclass(frozen=True)
-class DescendantAddresses(AddressGlobSpec):
-    """An AddressSpec representing all addresses located recursively under the given directory."""
+class MaybeEmptyDescendantAddresses(AddressGlobSpec):
+    """An AddressSpec representing all addresses located recursively under the given directory.
+
+    It is not an error if there are no such addresses.
+    """
 
     directory: str
 
@@ -124,8 +127,15 @@ class DescendantAddresses(AddressGlobSpec):
             if fast_relpath_optional(ns, self.directory) is not None
         )
 
+
+class DescendantAddresses(MaybeEmptyDescendantAddresses):
+    """An AddressSpec representing all addresses located recursively under the given directory.
+
+    At least one such address must exist.
+    """
+
     def matching_addresses(
-        self, address_families: Sequence["AddressFamily"]
+            self, address_families: Sequence["AddressFamily"]
     ) -> Sequence[Tuple[Address, TargetAdaptor]]:
         matching = super().matching_addresses(address_families)
         if len(matching) == 0:

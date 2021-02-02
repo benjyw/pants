@@ -7,10 +7,11 @@ from pants.backend.python.goals import init
 from pants.backend.python.goals.init import classify_source_files, group_by_dir, \
     PutativePythonTargetsRequest
 from pants.backend.python.target_types import PythonTests, PythonLibrary
-from pants.core.goals.init import PutativeTargets
+from pants.core.goals.init import PutativeTargets, PutativeTarget
 from pants.core.util_rules import source_files
 from pants.engine.rules import QueryRule
 from pants.testutil.rule_runner import RuleRunner
+from pants.util.frozendict import FrozenDict
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ def test_group_by_dir() -> None:
 def test_find_putative_targets(rule_runner: RuleRunner) -> None:
     dir_structure = {
         "src/python/foo/__init__.py": "",
-        #"src/python/foo/bar/BUILD": "python_library()",
+        "src/python/foo/bar/BUILD": "python_library()",
         "src/python/foo/bar/__init__.py": "",
         "src/python/foo/bar/baz1.py": "",
         "src/python/foo/bar/baz1_test.py": "",
@@ -65,3 +66,8 @@ def test_find_putative_targets(rule_runner: RuleRunner) -> None:
         rule_runner.create_file(path, content)
 
     pts = rule_runner.request(PutativeTargets, [PutativePythonTargetsRequest()])
+    assert PutativeTargets([
+        PutativeTarget("src/python/foo", "foo", "python_library", ["__init__.py"]),
+        PutativeTarget("src/python/foo/bar", "tests", "python_tests",
+                       ["baz1_test.py", "baz2_test.py"], kwargs={"name": "tests"}),
+    ]) == pts
