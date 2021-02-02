@@ -120,9 +120,9 @@ async def find_putative_source_roots(
         return False
 
     first_party_imports = {imp for imp in all_imports if not is_external_import(imp)}
-    logger.error("QQQQQQQQQQQQQQQQ")
-    for imp in sorted(first_party_imports):
-        logger.error(imp)
+    # logger.error("QQQQQQQQQQQQQQQQ")
+    # for imp in sorted(first_party_imports):
+    #     logger.error(imp)
 
     return PutativeSourceRoots([
         PutativeSourceRoot(path=f"Found {len(all_py_files.files)} .py files"),
