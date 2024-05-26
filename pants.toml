@@ -7,6 +7,8 @@ backend_packages.add = [
   "pants.backend.build_files.fix.deprecations",
   "pants.backend.build_files.fmt.ruff",
   "pants.backend.python",
+  "pants.backend.experimental.python_new",
+  "pants.backend.experimental.python.packaging.pyoxidizer",
   "pants.backend.python.lint.autoflake",
   "pants.backend.python.lint.docformatter",
   "pants.backend.python.lint.flake8",
