@@ -3,7 +3,8 @@
 
 """New implementation of support for Python."""
 
-from pants.backend.python_new import uv, foo
+from pants.backend.python_new import foo, uv
+
 
 def rules():
     return (
