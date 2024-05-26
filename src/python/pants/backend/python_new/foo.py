@@ -2,8 +2,8 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 from pants.backend.python_new.uv import download_uv
 from pants.engine.console import Console
-from pants.engine.goal import GoalSubsystem, Goal, LineOriented
-from pants.engine.rules import goal_rule, collect_rules
+from pants.engine.goal import Goal, GoalSubsystem, LineOriented
+from pants.engine.rules import collect_rules, goal_rule, implicitly
 
 
 class FooSubsystem(LineOriented, GoalSubsystem):
@@ -18,9 +18,10 @@ class Foo(Goal):
 
 @goal_rule
 async def foo(
-        console: Console, foo_subsystem: FooSubsystem,
+    console: Console,
+    foo_subsystem: FooSubsystem,
 ) -> Foo:
-    uv = await download_uv()
+    uv = await download_uv(**implicitly())
     with foo_subsystem.line_oriented(console) as print_stdout:
         print_stdout(uv.exe)
     return Foo(exit_code=0)

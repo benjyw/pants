@@ -1,7 +1,11 @@
 # Copyright 2024 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-from pants.core.util_rules.external_tool import TemplatedExternalTool, DownloadedExternalTool, download_external_tool
+from pants.core.util_rules.external_tool import (
+    DownloadedExternalTool,
+    TemplatedExternalTool,
+    download_external_tool,
+)
 from pants.engine.platform import Platform
 from pants.engine.rules import collect_rules, rule
 from pants.util.meta import classproperty
@@ -19,7 +23,9 @@ class UVSubsystem(TemplatedExternalTool):
         "linux_x86_64": "x86_64-unknown-linux-gnu.tar.gz",
         "linux_arm64": "aarch64-unknown-linux-musl.tar.gz",
     }
-    default_url_template = "https://github.com/astral-sh/uv/releases/download/{version}/uv-{platform}.tar.gz"
+    default_url_template = (
+        "https://github.com/astral-sh/uv/releases/download/{version}/uv-{platform}.tar.gz"
+    )
     version_constraints = "==0.2.3"
 
     @classproperty
