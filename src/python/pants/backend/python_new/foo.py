@@ -39,7 +39,7 @@ class PythonPartitions(Collection[PythonPartition]):
 
 
 @rule
-async def compute_partitions(specs: Specs) -> PythonPartition:
+async def compute_partitions(specs: Specs) -> PythonPartitions:
     """Partition in the input specs.
 
     We run separate processes for each partition (and may subpartition further
