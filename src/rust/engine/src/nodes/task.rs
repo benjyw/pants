@@ -64,7 +64,7 @@ impl Task {
             // NB: The Python constructor for `Call()` will have already errored if
             // `type(input) != input_type`.
             throw(format!(
-                "{call} was not detected in your @rule body at rule compile time."
+                "{call} was not detected in your @rule body at rule compile time: {dependency_key}...... {edges:#?}"
             ))
         })?;
         select(context, call.args, call.args_arity, params, entry).await
