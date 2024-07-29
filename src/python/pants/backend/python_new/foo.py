@@ -48,13 +48,13 @@ _repo_root = Path("")
 
 
 @rule
-async def get_pyproject_toml(directory: PosixPath) -> PythonConfig:
+async def get_python_config(directory: PosixPath) -> PythonConfig:
     if directory == _repo_root:
         return PythonConfig(values=None)
     digest = await path_globs_to_digest(PathGlobs([str(directory / "pyproject.toml")]))
     digest_contents = await directory_digest_to_digest_contents(digest)
     if not len(digest_contents):
-        return await get_pyproject_toml(directory.parent)
+        return await get_python_config(directory.parent)
     file_contents = next(iter(digest_contents))
     return PythonConfig.from_pyproject_toml_contents(file_contents.content.decode())
 
@@ -82,7 +82,7 @@ async def compute_partitions(specs: Specs) -> PythonPartitions:
     - ... ?
     """
     specs_paths = await resolve_specs_paths(specs, **implicitly())
-    files = OrderedSet(Path(f) for f in specs_paths.files)  # Note that these are actual files, not dirs.
+    files = OrderedSet(Path(f) for f in specs_paths.files)  # Note that these are all files, not dirs.
     # All files in the same dir belong to the same source root, so we only need to look up parents.
     dir_to_files = defaultdict(list)
     for file in files:
@@ -101,7 +101,7 @@ async def compute_partitions(specs: Specs) -> PythonPartitions:
     # Note that the same source root may appear multiple times in source_roots.
     # To get distinct source roots, we iterate over the keys of source_root_to_files.
     configs = await concurrently(
-        get_pyproject_toml(Path(source_root.path))
+        get_python_config(Path(source_root.path))
         for source_root in source_root_to_files.keys()
     )
 
