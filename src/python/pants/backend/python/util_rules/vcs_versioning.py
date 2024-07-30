@@ -28,20 +28,22 @@ from pants.backend.python.target_types import (
     VersionTemplateField,
     VersionVersionSchemeField,
 )
-from pants.backend.python.util_rules.pex import PexRequest, VenvPex, VenvPexProcess
+from pants.backend.python.util_rules.pex import PexRequest, VenvPexProcess, setup_venv_pex_process, \
+    create_venv_pex, VenvPex, wrap_venv_prex_request
+from pants.backend.python.util_rules.pex_environment import find_pex_python, PexEnvironment
+from pants.core.util_rules.adhoc_binaries import PythonBuildStandaloneBinary, get_python_for_scripts
 from pants.core.util_rules.stripped_source_files import StrippedFileName, StrippedFileNameRequest
 from pants.engine.environment import ChosenLocalEnvironmentName, EnvironmentName
 from pants.engine.fs import CreateDigest, FileContent
 from pants.engine.internals.native_engine import Digest, Snapshot
 from pants.engine.internals.selectors import Get, MultiGet
-from pants.engine.intrinsics import process_request_to_process_result
-from pants.engine.process import ProcessCacheScope
+from pants.engine.process import ProcessCacheScope, fallible_to_exec_result_or_raise, Process
 from pants.engine.rules import collect_rules, implicitly, rule
 from pants.engine.target import AllTargets, GeneratedSources, GenerateSourcesRequest, Targets
 from pants.engine.unions import UnionRule
 from pants.util.logging import LogLevel
 from pants.util.strutil import softwrap
-from pants.vcs.git import GitWorktreeRequest, MaybeGitWorktree
+from pants.vcs.git import GitWorktreeRequest, get_git_worktree
 
 
 class VCSVersioningError(Exception):
@@ -64,7 +66,14 @@ async def generate_python_from_setuptools_scm(
     # A MaybeGitWorktree is uncacheable, so this enclosing rule will run every time its result
     # is needed, and the process invocation below caches at session scope, meaning this rule
     # will always return a result based on the current underlying git state.
-    maybe_git_worktree = await Get(MaybeGitWorktree, GitWorktreeRequest())
+    maybe_git_worktree = await get_git_worktree(
+        GitWorktreeRequest(),
+        **implicitly(
+            {
+                local_environment_name.val: EnvironmentName,
+            }
+        ),
+    )
     if not maybe_git_worktree.git_worktree:
         raise VCSVersioningError(
             softwrap(
@@ -91,6 +100,17 @@ async def generate_python_from_setuptools_scm(
         tool_config["local_scheme"] = local_scheme
     config_path = "pyproject.synthetic.toml"
 
+    pbs = await get_python_for_scripts(**implicitly(
+        {
+            local_environment_name.val: EnvironmentName,
+        }
+    ))
+
+    pex_env = await find_pex_python(**implicitly(
+        {
+            pbs: PythonBuildStandaloneBinary,
+        }))
+
     input_digest_get = Get(
         Digest,
         CreateDigest(
@@ -100,12 +120,17 @@ async def generate_python_from_setuptools_scm(
         ),
     )
 
-    setuptools_scm_pex_get = Get(VenvPex, PexRequest, setuptools_scm.to_pex_request())
+    setuptools_scm_pex_get = create_venv_pex(
+        **implicitly({
+            setuptools_scm.to_pex_request(): PexRequest,
+            pex_env: PexEnvironment,  # Comment out this line to get the solver to pass.
+        }),
+    )
     setuptools_scm_pex, input_digest = await MultiGet(setuptools_scm_pex_get, input_digest_get)
 
     argv = ["--root", str(maybe_git_worktree.git_worktree.worktree), "--config", config_path]
 
-    result = await process_request_to_process_result(
+    process = await setup_venv_pex_process(
         **implicitly(
             {
                 VenvPexProcess(
@@ -116,10 +141,19 @@ async def generate_python_from_setuptools_scm(
                     level=LogLevel.INFO,
                     cache_scope=ProcessCacheScope.PER_SESSION,
                 ): VenvPexProcess,
+                pex_env: PexEnvironment,
+            }
+        ),
+    )
+    result = await fallible_to_exec_result_or_raise(
+        **implicitly(
+            {
+                process: Process,
                 local_environment_name.val: EnvironmentName,
             }
         ),
     )
+
     version = result.stdout.decode().strip()
     write_to = cast(str, request.protocol_target[VersionGenerateToField].value)
     write_to_template = cast(str, request.protocol_target[VersionTemplateField].value)
