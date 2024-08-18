@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PosixPath
 from typing import Tuple, Optional
 
+from pants.backend.python_new.pex3 import download_pex3
 from pants.engine.fs import PathGlobs
 from pants.engine.intrinsics import path_globs_to_digest, directory_digest_to_digest_contents
 
@@ -119,6 +120,7 @@ async def foo(
 ) -> Foo:
     partitions = await compute_partitions(**implicitly())
     uv = await download_uv(**implicitly())
+    pex = await download_pex3(**implicitly())
     with foo_subsystem.line_oriented(console) as print_stdout:
         print_stdout(partitions)
     return Foo(exit_code=0)
