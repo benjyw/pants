@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path, PosixPath
 from typing import Tuple, Optional
 
-from pants.backend.python_new.pex3 import download_pex3
+from pants.backend.python_new.pex import download_pex3
+
+from pants.backend.python_new.lockfile import generate_lockfile
 from pants.engine.fs import PathGlobs
 from pants.engine.intrinsics import path_globs_to_digest, directory_digest_to_digest_contents
 
@@ -123,6 +125,8 @@ async def foo(
     pex = await download_pex3(**implicitly())
     with foo_subsystem.line_oriented(console) as print_stdout:
         print_stdout(partitions)
+    lockfile = await generate_lockfile("lockfile.json", ("ansicolors",))
+    print_stdout(f"XXXXXXX {lockfile.digest}")
     return Foo(exit_code=0)
 
 
