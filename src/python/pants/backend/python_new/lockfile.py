@@ -7,7 +7,7 @@ from pants.backend.python.util_rules.pex_cli import PexCliProcess
 from pants.engine.internals.native_engine import Digest
 from pants.engine.intrinsics import process_request_to_process_result
 from pants.engine.process import fallible_to_exec_result_or_raise
-from pants.engine.rules import rule, implicitly
+from pants.engine.rules import rule, implicitly, collect_rules
 
 
 @dataclass(frozen=True)
@@ -34,3 +34,7 @@ async def generate_lockfile(path: str, requirements: Requirements) -> Lockfile:
     }))
     result = await fallible_to_exec_result_or_raise(fallible_result, **implicitly())
     return Lockfile(digest=result.output_digest)
+
+
+def rules():
+    return collect_rules()

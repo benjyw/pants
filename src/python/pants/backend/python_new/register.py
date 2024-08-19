@@ -3,12 +3,16 @@
 
 """New implementation of support for Python."""
 
-from pants.backend.python_new import register
+from pants.backend.python_new import foo, uv, lockfile
 
 
 def rules():
-    return register.rules()
+    return (
+        *uv.rules(),
+        *foo.rules(),
+        *lockfile.rules(),
+    )
 
 
 def target_types():
-    return register.target_types()
+    return tuple()
