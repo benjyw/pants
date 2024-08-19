@@ -3,6 +3,7 @@
 
 """New implementation of support for Python."""
 
+from pants.backend.python.util_rules import pex
 from pants.backend.python_new import foo, uv, lockfile
 
 
@@ -11,6 +12,7 @@ def rules():
         *uv.rules(),
         *foo.rules(),
         *lockfile.rules(),
+        *pex.rules(),
     )
 
 
