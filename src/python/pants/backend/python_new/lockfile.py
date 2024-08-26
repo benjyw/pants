@@ -24,15 +24,14 @@ class Requirements:
 async def generate_lockfile(path: str, requirements: Requirements) -> Lockfile:
     pex_proc = PexCliProcess(
         subcommand=("lock", "create", "--style", "strict", "--indent", "2",
-                    "--output ", path, *requirements.requirement_strings),
+                    "--output", path, *requirements.requirement_strings),
         extra_args=tuple(),
         description=f"Generate lockfile from {len(requirements.requirement_strings)} requirements",
         output_files=(path,)
     )
-    fallible_result = await process_request_to_process_result(**implicitly({
-        pex_proc: PexCliProcess
-    }))
-    result = await fallible_to_exec_result_or_raise(fallible_result, **implicitly())
+    result = await fallible_to_exec_result_or_raise(**implicitly(
+        {pex_proc: PexCliProcess}
+    ))
     return Lockfile(digest=result.output_digest)
 
 
