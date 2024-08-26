@@ -8,7 +8,7 @@ from typing import Tuple, Optional
 
 from pants.backend.python.util_rules.pex_cli import download_pex_pex
 
-from pants.backend.python_new.lockfile import generate_lockfile
+from pants.backend.python_new.lockfile import generate_lockfile, Requirements
 from pants.engine.fs import PathGlobs
 from pants.engine.intrinsics import path_globs_to_digest, directory_digest_to_digest_contents
 
@@ -125,7 +125,8 @@ async def foo(
     pex = await download_pex_pex(**implicitly())
     with foo_subsystem.line_oriented(console) as print_stdout:
         print_stdout(partitions)
-    lockfile = await generate_lockfile("lockfile.json", ("ansicolors",))
+    lockfile = await generate_lockfile("lockfile.json", Requirements(
+        requirement_strings=("ansicolors",)))
     print_stdout(f"XXXXXXX {lockfile.digest}")
     return Foo(exit_code=0)
 
