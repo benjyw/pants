@@ -8,7 +8,7 @@ from pants.backend.python_new.partition import compute_partitions, PythonPartiti
 from pants.engine.fs import Workspace
 from pants.engine.internals.native_engine import MergeDigests
 from pants.engine.internals.selectors import concurrently
-from pants.engine.intrinsics import merge_digests_request_to_digest, directory_digest_to_digest_entries
+from pants.engine.intrinsics import merge_digests, get_digest_entries
 
 try:
     import toml
@@ -45,10 +45,10 @@ async def foo(
         for partition in partitions
     )
 
-    merged_digest = await merge_digests_request_to_digest(
+    merged_digest = await merge_digests(
         MergeDigests(lockfile.digest for lockfile in lockfiles)
     )
-    paths = await directory_digest_to_digest_entries(merged_digest)
+    paths = await get_digest_entries(merged_digest)
 
     workspace.write_digest(merged_digest)
     with foo_subsystem.line_oriented(console) as print_stdout:

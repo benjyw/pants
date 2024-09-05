@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Tuple, Optional, Union
 
 from pants.engine.fs import PathGlobs
-from pants.engine.intrinsics import path_globs_to_digest, directory_digest_to_digest_contents
+from pants.engine.intrinsics import path_globs_to_digest, get_digest_contents
 from pants.util.frozendict import FrozenDict
 
 try:
@@ -82,7 +82,7 @@ _repo_root = Path("")
 async def get_python_config_for_directory(directory: Path) -> OptionalPythonConfig:
     path = directory / "pyproject.toml"
     digest = await path_globs_to_digest(PathGlobs([str(path)]))
-    digest_contents = await directory_digest_to_digest_contents(digest)
+    digest_contents = await get_digest_contents(digest)
     if not len(digest_contents):
         if directory == _repo_root:
             return OptionalPythonConfig(config=None)
