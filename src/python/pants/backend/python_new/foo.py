@@ -2,6 +2,7 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 from pants.backend.python.util_rules.pex_cli import download_pex_pex
+from pants.backend.python_new.interpreter import generate_complete_platform, InterpreterConstraint
 
 from pants.backend.python_new.lockfile import generate_lockfile_for_partition
 from pants.backend.python_new.partition import compute_partitions, PythonPartition
@@ -37,23 +38,26 @@ async def foo(
     workspace: Workspace,
     foo_subsystem: FooSubsystem,
 ) -> Foo:
+    complete_platform = await generate_complete_platform(InterpreterConstraint("==3.11.9"))
+    workspace.write_digest(complete_platform.digest)
+
     partitions = await compute_partitions(**implicitly())
     uv = await download_uv(**implicitly())
     pex = await download_pex_pex(**implicitly())
-    lockfiles = await concurrently(
-        generate_lockfile_for_partition(**implicitly({partition: PythonPartition}))
-        for partition in partitions
-    )
-
-    merged_digest = await merge_digests(
-        MergeDigests(lockfile.digest for lockfile in lockfiles)
-    )
-    paths = await get_digest_entries(merged_digest)
-
-    workspace.write_digest(merged_digest)
-    with foo_subsystem.line_oriented(console) as print_stdout:
-        for path in paths:
-            print_stdout(f"Wrote lockfile to {path.path}")
+    # lockfiles = await concurrently(
+    #     generate_lockfile_for_partition(**implicitly({partition: PythonPartition}))
+    #     for partition in partitions
+    # )
+    #
+    # merged_digest = await merge_digests(
+    #     MergeDigests(lockfile.digest for lockfile in lockfiles)
+    # )
+    # paths = await get_digest_entries(merged_digest)
+    #
+    # workspace.write_digest(merged_digest)
+    # with foo_subsystem.line_oriented(console) as print_stdout:
+    #     for path in paths:
+    #         print_stdout(f"Wrote lockfile to {path.path}")
     return Foo(exit_code=0)
 
 
