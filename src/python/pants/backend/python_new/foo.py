@@ -38,9 +38,6 @@ async def foo(
     workspace: Workspace,
     foo_subsystem: FooSubsystem,
 ) -> Foo:
-    complete_platform = await generate_complete_platform(InterpreterConstraint("==3.11.9"))
-    workspace.write_digest(complete_platform.digest)
-
     partitions = await compute_partitions(**implicitly())
     uv = await download_uv(**implicitly())
     pex = await download_pex_pex(**implicitly())
