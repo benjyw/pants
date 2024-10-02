@@ -4,13 +4,14 @@
 """New implementation of support for Python."""
 
 from pants.backend.python.util_rules import pex
-from pants.backend.python_new import foo, uv, lockfile, partition
+from pants.backend.python_new import foo, uv, lockfile, partition, goals
 
 
 def rules():
     return (
         *uv.rules(),
         *foo.rules(),
+        *goals.rules(),
         *lockfile.rules(),
         *partition.rules(),
         *pex.rules(),
