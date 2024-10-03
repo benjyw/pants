@@ -396,7 +396,7 @@ impl NodeKey {
 
                 let displayable_param_names: Vec<_> = Python::with_gil(|py| {
                     Self::engine_aware_params(context, py, &task.params)
-                        .filter_map(|k| EngineAwareParameter::debug_hint((*k.value).as_ref(py)))
+                        .filter_map(|k| EngineAwareParameter::debug_hint((*k.value).bind(py)))
                         .collect()
                 });
 
@@ -502,7 +502,7 @@ impl Node for NodeKey {
                 if let Some(params) = maybe_params {
                     Python::with_gil(|py| {
                         Self::engine_aware_params(&context, py, params)
-                            .flat_map(|k| EngineAwareParameter::metadata((*k.value).as_ref(py)))
+                            .flat_map(|k| EngineAwareParameter::metadata((*k.value).bind(py)))
                             .collect()
                     })
                 } else {
@@ -588,8 +588,12 @@ impl Node for NodeKey {
         match (self, output) {
             (NodeKey::ExecuteProcess(ref ep), NodeOutput::ProcessResult(ref process_result)) => {
                 match ep.process.cache_scope {
-                    ProcessCacheScope::Always | ProcessCacheScope::PerRestartAlways => true,
-                    ProcessCacheScope::Successful | ProcessCacheScope::PerRestartSuccessful => {
+                    ProcessCacheScope::Always
+                    | ProcessCacheScope::LocalAlways
+                    | ProcessCacheScope::PerRestartAlways => true,
+                    ProcessCacheScope::Successful
+                    | ProcessCacheScope::LocalSuccessful
+                    | ProcessCacheScope::PerRestartSuccessful => {
                         process_result.result.exit_code == 0
                     }
                     ProcessCacheScope::PerSession => false,
@@ -597,7 +601,7 @@ impl Node for NodeKey {
             }
             (NodeKey::Task(ref t), NodeOutput::Value(ref v)) if t.task.engine_aware_return_type => {
                 Python::with_gil(|py| {
-                    EngineAwareReturnType::is_cacheable((**v).as_ref(py)).unwrap_or(true)
+                    EngineAwareReturnType::is_cacheable((**v).bind(py)).unwrap_or(true)
                 })
             }
             _ => true,
@@ -648,7 +652,7 @@ impl Display for NodeKey {
                             .keys()
                             .filter_map(|k| {
                                 EngineAwareParameter::debug_hint(
-                                    k.to_value().clone_ref(py).into_ref(py),
+                                    k.to_value().clone_ref(py).bind(py),
                                 )
                             })
                             .collect::<Vec<_>>()

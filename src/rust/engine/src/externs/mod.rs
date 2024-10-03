@@ -42,7 +42,7 @@ mod target;
 pub mod testutil;
 pub mod workunits;
 
-pub fn register(py: Python, m: &PyModule) -> PyResult<()> {
+pub fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFailure>()?;
     m.add_class::<PyGeneratorResponseNativeCall>()?;
     m.add_class::<PyGeneratorResponseCall>()?;
@@ -167,7 +167,7 @@ pub fn store_bool(py: Python, val: bool) -> Value {
 ///
 /// Gets an attribute of the given value as the given type.
 ///
-pub fn getattr<'py, T>(value: &'py PyAny, field: &str) -> Result<T, String>
+pub fn getattr_bound<'py, T>(value: &Bound<'py, PyAny>, field: &str) -> Result<T, String>
 where
     T: FromPyObject<'py>,
 {
@@ -183,6 +183,13 @@ where
                 e
             )
         })
+}
+
+pub fn getattr<'py, T>(value: &'py PyAny, field: &str) -> Result<T, String>
+where
+    T: FromPyObject<'py>,
+{
+    getattr_bound(&value.as_borrowed(), field)
 }
 
 ///
@@ -212,17 +219,24 @@ pub fn collect_iterable(value: &PyAny) -> Result<Vec<&PyAny>, String> {
 }
 
 /// Read a `FrozenDict[str, T]`.
-pub fn getattr_from_str_frozendict<'p, T: FromPyObject<'p>>(
-    value: &'p PyAny,
+pub fn getattr_from_str_frozendict_bound<'py, T: FromPyObject<'py>>(
+    value: &Bound<'py, PyAny>,
     field: &str,
 ) -> BTreeMap<String, T> {
-    let frozendict = getattr(value, field).unwrap();
-    let pydict: &PyDict = getattr(frozendict, "_data").unwrap();
+    let frozendict: Bound<PyAny> = getattr_bound(value, field).unwrap();
+    let pydict: Bound<PyDict> = getattr_bound(&frozendict, "_data").unwrap();
     pydict
         .items()
         .into_iter()
         .map(|kv_pair| kv_pair.extract().unwrap())
         .collect()
+}
+
+pub fn getattr_from_str_frozendict<'py, T: FromPyObject<'py>>(
+    value: &'py PyAny,
+    field: &str,
+) -> BTreeMap<String, T> {
+    getattr_from_str_frozendict_bound(&value.as_borrowed(), field)
 }
 
 pub fn getattr_as_optional_string(value: &PyAny, field: &str) -> PyResult<Option<String>> {
@@ -316,7 +330,7 @@ pub(crate) fn generator_send(
     let response = match response_unhandled {
         Err(e) if e.is_instance_of::<PyStopIteration>(py) => {
             let value = e.into_value(py).getattr(py, intern!(py, "value"))?;
-            let type_id = TypeId::new(value.as_ref(py).get_type());
+            let type_id = TypeId::new(&value.as_ref(py).get_type().as_borrowed());
             return Ok(GeneratorResponse::Break(Value::new(value), type_id));
         }
         Err(e) => {
@@ -418,21 +432,24 @@ fn interpret_get_inputs(
                 let mut input_types = SmallVec::new();
                 let mut inputs = SmallVec::new();
                 for (value, declared_type) in d.iter() {
-                    input_types.push(TypeId::new(declared_type.downcast::<PyType>().map_err(
-                        |_| {
-                            PyTypeError::new_err(
+                    input_types.push(TypeId::new(
+                        &declared_type
+                            .downcast::<PyType>()
+                            .map_err(|_| {
+                                PyTypeError::new_err(
                 "Invalid Get. Because the second argument was a dict, we expected the keys of the \
             dict to be the Get inputs, and the values of the dict to be the declared \
             types of those inputs.",
               )
-                        },
-                    )?));
+                            })?
+                            .as_borrowed(),
+                    ));
                     inputs.push(INTERNS.key_insert(py, value.into())?);
                 }
                 Ok((input_types, inputs))
             } else {
                 Ok((
-                    smallvec![TypeId::new(input_arg0.get_type())],
+                    smallvec![TypeId::new(&input_arg0.get_type().as_borrowed())],
                     smallvec![INTERNS.key_insert(py, input_arg0.into())?],
                 ))
             }
@@ -464,7 +481,7 @@ fn interpret_get_inputs(
             }
 
             Ok((
-                smallvec![TypeId::new(declared_type)],
+                smallvec![TypeId::new(&declared_type.as_borrowed())],
                 smallvec![INTERNS.key_insert(py, input_arg1.into())?],
             ))
         }
@@ -527,7 +544,7 @@ impl PyGeneratorResponseCall {
     fn __new__(
         py: Python,
         rule_id: String,
-        output_type: &PyType,
+        output_type: &Bound<'_, PyType>,
         args: &PyTuple,
         input_arg0: Option<&PyAny>,
         input_arg1: Option<&PyAny>,
@@ -611,7 +628,7 @@ impl PyGeneratorResponseGet {
     #[new]
     fn __new__(
         py: Python,
-        product: &PyAny,
+        product: &Bound<'_, PyAny>,
         input_arg0: Option<&PyAny>,
         input_arg1: Option<&PyAny>,
     ) -> PyResult<Self> {
