@@ -3,6 +3,7 @@
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from pants.backend.python.util_rules.pex_cli import PexCliProcess
 from pants.backend.python_new.subsystems import PythonSettings
@@ -31,10 +32,13 @@ class Interpreter:
 
 @rule
 async def get_interpreter(name: str, python_settings: PythonSettings) -> Interpreter:
+    name = name or python_settings.default_interpreter
+    if not name:
+        raise Exception("You must set `[python-new].default_interpreter` in pants.toml.")
     complete_platform_path = get_complete_platform_path(name, python_settings)
-    complete_platform_digest = await path_globs_to_digest(PathGlobs([]))
+    complete_platform_digest = await path_globs_to_digest(PathGlobs([complete_platform_path]))
     if complete_platform_digest == EMPTY_DIGEST:
-        raise Exception(f"No complete platform file found at {complete_platform_path}. Run `pants inspect-interpreters` to create one.")
+        raise Exception(f"No complete platform file found at {complete_platform_path}. Run `pants interpreter --inspect` to create one.")
     else:
         complete_platform = CompletePlatform(complete_platform_digest)
     return Interpreter(complete_platform)
