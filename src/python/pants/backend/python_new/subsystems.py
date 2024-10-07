@@ -34,3 +34,8 @@ class PythonSettings(Subsystem):
         ),
         metavar="<interpreter mapping>",
     )
+
+    default_interpreter = StrOption(
+        default=None,
+        help="One of the interpreter names as specified by the `interpreters` option in this scope."
+    )

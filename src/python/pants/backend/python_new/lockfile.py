@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from pants.backend.python.util_rules.pex_cli import PexCliProcess
+from pants.backend.python_new.interpreter import CompletePlatform, get_interpreter, Interpreter
 from pants.backend.python_new.partition import PythonPartition
 from pants.engine.fs import PathGlobs
 from pants.engine.internals.native_engine import Digest
@@ -29,7 +30,7 @@ class Requirements:
 @dataclass(frozen=True)
 class LockfileRequest:
     path: str
-    interpreter_constraints: Tuple[str, ...]
+    interpreter: Interpreter
     requirements: Requirements
 
 
@@ -38,15 +39,17 @@ async def generate_lockfile(req: LockfileRequest) -> Lockfile:
     lockfile_path = req.path
     existing_lockfile_digest = await path_globs_to_digest(PathGlobs([str(lockfile_path)]))
     req_strings = req.requirements.requirement_strings
+    complete_platform_contents = await get_digest_contents(req.interpreter.complete_platform.digest)
+    complete_platform = next(iter(complete_platform_contents)).content.decode()
 
-    ic_args = itertools.chain.from_iterable(["--interpreter-constraint", ic] for ic in req.interpreter_constraints)
-    pex_args = ["lock", "sync", "--style", "strict",
-                *ic_args,
+    pex_args = ["lock", "sync",
+                "--lock", lockfile_path,
+                "--complete-platform", complete_platform,
+                "--style", "strict",
                 "--force-pep517",
                 "--indent", "2",
-                "--lock", lockfile_path, *req_strings
+                *req_strings
                 ]
-    logging.warning(f"RUNNING pex {' '.join(pex_args)}")
     pex_proc = PexCliProcess(
         subcommand=pex_args,
         extra_args=tuple(),
@@ -65,8 +68,9 @@ async def generate_lockfile(req: LockfileRequest) -> Lockfile:
 @rule
 async def generate_lockfile_for_partition(partition: PythonPartition) -> Lockfile:
     config = partition.config_or_error()
+    interpreter = await get_interpreter("")
     path = config.get_or_error("pants", "lockfile")
-    interpreter_constraints = (config.get_or_error("project", "requires-python"),)
+    #interpreter_constraints = (config.get_or_error("project", "requires-python"),)
     deps = config.get("project", "dependencies")
     if deps is None:
         if "dependencies" in config.get("project", "dynamic", tuple()):
@@ -81,7 +85,7 @@ async def generate_lockfile_for_partition(partition: PythonPartition) -> Lockfil
         else:
             deps = []
     return await generate_lockfile(LockfileRequest(
-        path=path, interpreter_constraints=interpreter_constraints,
+        path=path, interpreter=interpreter,
         requirements=Requirements(requirement_strings=tuple(deps)))
     )
 
