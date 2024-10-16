@@ -17,6 +17,8 @@ use graph::{Node, NodeError};
 use internment::Intern;
 use process_execution::{self, ProcessCacheScope};
 use pyo3::prelude::{PyAny, Python};
+use pyo3::types::{PyAnyMethods, PyTypeMethods};
+use pyo3::Bound;
 use rule_graph::{DependencyKey, Query};
 use store::{self, StoreFileByDigest};
 use workunit_store::{in_workunit, Level};
@@ -218,12 +220,12 @@ fn select_reentry(
     .boxed()
 }
 
-pub fn lift_directory_digest(digest: &PyAny) -> Result<DirectoryDigest, String> {
+pub fn lift_directory_digest_bound(digest: &Bound<'_, PyAny>) -> Result<DirectoryDigest, String> {
     let py_digest: externs::fs::PyDigest = digest.extract().map_err(|e| format!("{e}"))?;
     Ok(py_digest.0)
 }
 
-pub fn lift_file_digest(digest: &PyAny) -> Result<hashing::Digest, String> {
+pub fn lift_file_digest_bound(digest: &Bound<'_, PyAny>) -> Result<hashing::Digest, String> {
     let py_file_digest: externs::fs::PyFileDigest = digest.extract().map_err(|e| format!("{e}"))?;
     Ok(py_file_digest.0)
 }
@@ -396,7 +398,7 @@ impl NodeKey {
 
                 let displayable_param_names: Vec<_> = Python::with_gil(|py| {
                     Self::engine_aware_params(context, py, &task.params)
-                        .filter_map(|k| EngineAwareParameter::debug_hint((*k.value).bind(py)))
+                        .filter_map(|k| EngineAwareParameter::debug_hint(k.value.bind(py)))
                         .collect()
                 });
 
@@ -468,11 +470,15 @@ impl NodeKey {
         py: Python<'a>,
         params: &'a Params,
     ) -> impl Iterator<Item = &'a Key> + 'a {
-        let engine_aware_param_ty = context.core.types.engine_aware_parameter.as_py_type(py);
+        let engine_aware_param_ty = context
+            .core
+            .types
+            .engine_aware_parameter
+            .as_py_type_bound(py);
         params.keys().filter(move |key| {
             key.type_id()
-                .as_py_type(py)
-                .is_subclass(engine_aware_param_ty)
+                .as_py_type_bound(py)
+                .is_subclass(&engine_aware_param_ty)
                 .unwrap_or(false)
         })
     }
@@ -502,7 +508,7 @@ impl Node for NodeKey {
                 if let Some(params) = maybe_params {
                     Python::with_gil(|py| {
                         Self::engine_aware_params(&context, py, params)
-                            .flat_map(|k| EngineAwareParameter::metadata((*k.value).bind(py)))
+                            .flat_map(|k| EngineAwareParameter::metadata(k.value.bind(py)))
                             .collect()
                     })
                 } else {
@@ -601,7 +607,7 @@ impl Node for NodeKey {
             }
             (NodeKey::Task(ref t), NodeOutput::Value(ref v)) if t.task.engine_aware_return_type => {
                 Python::with_gil(|py| {
-                    EngineAwareReturnType::is_cacheable((**v).bind(py)).unwrap_or(true)
+                    EngineAwareReturnType::is_cacheable(v.bind(py)).unwrap_or(true)
                 })
             }
             _ => true,
@@ -650,11 +656,7 @@ impl Display for NodeKey {
                     Python::with_gil(|py| {
                         task.params
                             .keys()
-                            .filter_map(|k| {
-                                EngineAwareParameter::debug_hint(
-                                    k.to_value().clone_ref(py).bind(py),
-                                )
-                            })
+                            .filter_map(|k| EngineAwareParameter::debug_hint(k.to_value().bind(py)))
                             .collect::<Vec<_>>()
                     })
                 };

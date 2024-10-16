@@ -11,6 +11,7 @@ use itertools::Itertools;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyException, PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyIterator, PyString, PyTuple, PyType};
 
 use fs::{
@@ -269,13 +270,12 @@ pub struct PyMergeDigests(pub Vec<DirectoryDigest>);
 impl PyMergeDigests {
     #[new]
     fn __new__(digests: &Bound<'_, PyAny>, _py: Python) -> PyResult<Self> {
-        let digests: PyResult<Vec<DirectoryDigest>> =
-            PyIterator::from_object(digests.as_gil_ref())?
-                .map(|v| {
-                    let py_digest = v?.extract::<PyDigest>()?;
-                    Ok(py_digest.0)
-                })
-                .collect();
+        let digests: PyResult<Vec<DirectoryDigest>> = PyIterator::from_bound_object(digests)?
+            .map(|v| {
+                let py_digest = v?.extract::<PyDigest>()?;
+                Ok(py_digest.0)
+            })
+            .collect();
         Ok(Self(digests?))
     }
 
@@ -415,16 +415,18 @@ impl<'py> FromPyObject<'py> for PyPathGlobs {
             Some(description_of_origin_field.extract()?)
         };
 
-        let match_behavior_str: &str = obj
+        let match_behavior_str: PyBackedStr = obj
             .getattr("glob_match_error_behavior")?
             .getattr("value")?
             .extract()?;
-        let match_behavior = StrictGlobMatching::create(match_behavior_str, description_of_origin)
-            .map_err(PyValueError::new_err)?;
+        let match_behavior =
+            StrictGlobMatching::create(match_behavior_str.as_ref(), description_of_origin)
+                .map_err(PyValueError::new_err)?;
 
-        let conjunction_str: &str = obj.getattr("conjunction")?.getattr("value")?.extract()?;
-        let conjunction =
-            GlobExpansionConjunction::create(conjunction_str).map_err(PyValueError::new_err)?;
+        let conjunction_str: PyBackedStr =
+            obj.getattr("conjunction")?.getattr("value")?.extract()?;
+        let conjunction = GlobExpansionConjunction::create(conjunction_str.as_ref())
+            .map_err(PyValueError::new_err)?;
 
         Ok(PyPathGlobs(PathGlobs::new(
             globs,
@@ -505,7 +507,7 @@ impl PyFilespecMatcher {
 // -----------------------------------------------------------------------------
 
 /// The kind of path (e.g., file, directory, symlink) as identified in `PathMetadata`
-#[pyclass(name = "PathMetadataKind", rename_all = "UPPERCASE")]
+#[pyclass(name = "PathMetadataKind", rename_all = "UPPERCASE", eq)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PyPathMetadataKind {
     File,
@@ -541,6 +543,17 @@ pub struct PyPathMetadata(pub fs::PathMetadata);
 #[pymethods]
 impl PyPathMetadata {
     #[new]
+    #[pyo3(signature = (
+        path,
+        kind,
+        length,
+        is_executable,
+        unix_mode,
+        accessed,
+        created,
+        modified,
+        symlink_target
+    ))]
     pub fn new(
         path: PathBuf,
         kind: PyPathMetadataKind,
@@ -621,24 +634,11 @@ impl PyPathMetadata {
 }
 
 /// The path's namespace (to separate buildroot and system paths)
-#[pyclass(name = "PathNamespace", rename_all = "UPPERCASE")]
+#[pyclass(name = "PathNamespace", rename_all = "UPPERCASE", frozen, eq, hash)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum PyPathNamespace {
     Workspace,
     System,
-}
-
-#[pymethods]
-impl PyPathNamespace {
-    fn __eq__(&self, other: &PyPathNamespace) -> bool {
-        self == other
-    }
-
-    fn __hash__(&self) -> u64 {
-        let mut h = DefaultHasher::new();
-        self.hash(&mut h);
-        h.finish()
-    }
 }
 
 // -----------------------------------------------------------------------------
