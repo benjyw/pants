@@ -9,8 +9,9 @@ from pants.backend.python.util_rules.pex_cli import PexCliProcess
 from pants.backend.python_new.interpreter import get_interpreter, Interpreter
 from pants.backend.python_new.partition import PythonPartition
 from pants.engine.fs import PathGlobs
-from pants.engine.internals.native_engine import Digest, EMPTY_DIGEST
-from pants.engine.intrinsics import get_digest_contents, path_globs_to_digest
+from pants.engine.internals.native_engine import Digest, EMPTY_DIGEST, MergeDigests
+from pants.engine.internals.selectors import concurrently
+from pants.engine.intrinsics import get_digest_contents, path_globs_to_digest, merge_digests, get_digest_entries
 from pants.engine.process import fallible_to_exec_result_or_raise
 from pants.engine.rules import rule, implicitly, collect_rules
 from pants.util.frozendict import FrozenDict
@@ -37,15 +38,20 @@ class LockfileRequest:
 @rule
 async def generate_lockfile(req: LockfileRequest) -> Lockfile:
     lockfile_path = req.path
-    existing_lockfile_digest = await path_globs_to_digest(PathGlobs([str(lockfile_path)]))
-    req_txt_files = await get_digest_contents(req.requirements.requirements_txts)
+
+    existing_lockfile_digest, req_txt_files, complete_platform_file = await concurrently(
+        path_globs_to_digest(PathGlobs([str(lockfile_path)])),
+        get_digest_entries(req.requirements.requirements_txts),
+        get_digest_entries(req.interpreter.complete_platform.digest)
+    )
+    input_digest = await merge_digests(MergeDigests([
+        existing_lockfile_digest, req.requirements.requirements_txts, req.interpreter.complete_platform.digest
+    ]))
     req_strings = [
         *itertools.chain.from_iterable(zip(itertools.repeat("-r", len(req_txt_files)), (file_content.path for file_content in req_txt_files))),
         *req.requirements.requirement_strings,
     ]
-    print(f"ZZZZZZZ {req_strings}")
-    complete_platform_contents = await get_digest_contents(req.interpreter.complete_platform.digest)
-    complete_platform = next(iter(complete_platform_contents)).content.decode()
+    complete_platform = next(iter(complete_platform_file)).path
 
     pex_args = ["lock", "sync",
                 "--lock", lockfile_path,
@@ -60,7 +66,7 @@ async def generate_lockfile(req: LockfileRequest) -> Lockfile:
     pex_proc = PexCliProcess(
         subcommand=pex_args,
         extra_args=tuple(),
-        additional_input_digest=existing_lockfile_digest,
+        additional_input_digest=input_digest,
         description=f"Generate lockfile from {len(req_strings)} requirements",
         output_files=(lockfile_path,)
     )
