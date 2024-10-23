@@ -60,21 +60,19 @@ async def generate_lockfile(req: LockfileRequest) -> Lockfile:
                 "--pip-version", "latest",
                 "--force-pep517",
                 "--indent", "2",
-                "--preserve-pip-download-log",
+                "--pip-log", "pip.log",
                 *req_strings
                 ]
     pex_proc = PexCliProcess(
         subcommand=pex_args,
         extra_args=tuple(),
         additional_input_digest=input_digest,
-        description=f"Generate lockfile from {len(req_strings)} requirements",
+        description=f"Generate {lockfile_path}",
         output_files=(lockfile_path,)
     )
     result = await fallible_to_exec_result_or_raise(**implicitly(
         {pex_proc: PexCliProcess}
     ))
-    print(f"STDOUT: {result.stdout}")
-    print(f"STDERR: {result.stderr}")
     return Lockfile(digest=result.output_digest)
 
 

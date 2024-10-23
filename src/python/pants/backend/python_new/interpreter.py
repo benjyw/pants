@@ -57,7 +57,7 @@ async def generate_complete_platform(output_path: str, ic: InterpreterConstraint
     pex_proc = PexCliProcess(
         subcommand=pex_args,
         extra_args=tuple(),
-        description=f"Generate complete platforms for Python {ic}",
+        description=f"Generate complete platforms for {ic.constraint}",
         output_files=(output_path,)
     )
     result = await fallible_to_exec_result_or_raise(**implicitly(
