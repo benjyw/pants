@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple, Optional, Union
 
+from pants.backend.python_new.subsystems import PythonSettings
 from pants.engine.fs import PathGlobs
 from pants.engine.intrinsics import path_globs_to_digest, get_digest_contents
 from pants.util.frozendict import FrozenDict
@@ -95,6 +96,7 @@ async def get_python_config_for_directory(directory: Path) -> OptionalPythonConf
 @dataclass(frozen=True)
 class PythonPartition:
     source_root: Path
+    settings: PythonSettings.EnvironmentAware
     config: Optional[PythonConfig]
     source_files: Tuple[Path, ...]
 
@@ -110,7 +112,7 @@ class PythonPartitions(Collection[PythonPartition]):
 
 
 @rule
-async def compute_partitions(specs: Specs) -> PythonPartitions:
+async def compute_partitions(specs: Specs, settings: PythonSettings.EnvironmentAware) -> PythonPartitions:
     """Partition in the input specs.
 
     We run separate processes for each partition (and may subpartition further
@@ -145,7 +147,7 @@ async def compute_partitions(specs: Specs) -> PythonPartitions:
     )
 
     return PythonPartitions(
-        PythonPartition(source_root=sr, config=opt_config.config, source_files=tuple(Path(f) for f in files))
+        PythonPartition(source_root=sr, settings=settings, config=opt_config.config, source_files=tuple(Path(f) for f in files))
         # Note that we rely on consistent dict iteration order.
         for sr, files, opt_config in zip(source_root_to_files.keys(), source_root_to_files.values(), opt_configs)
     )

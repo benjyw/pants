@@ -80,6 +80,9 @@ async def generate_lockfile(req: LockfileRequest) -> Lockfile:
 async def generate_lockfile_for_partition(partition: PythonPartition) -> Lockfile:
     config = partition.config_or_error()
     interpreter = await get_interpreter("")
+    path = partition.settings.lockfile
+    if not path:
+        raise Exception(f"Must set the `lockfile` option in the [{partition.settings.options_scope}] scope")
     path = config.get_or_error("pants", "lockfile")
     #interpreter_constraints = (config.get_or_error("project", "requires-python"),)
     deps = config.get("project", "dependencies", default=tuple())
