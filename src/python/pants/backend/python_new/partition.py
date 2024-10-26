@@ -112,7 +112,7 @@ class PythonPartitions(Collection[PythonPartition]):
 
 
 @rule
-async def compute_partitions(specs: Specs, settings: PythonSettings.EnvironmentAware) -> PythonPartitions:
+async def compute_partitions(specs: Specs, settings: PythonSettings) -> PythonPartitions:
     """Partition in the input specs.
 
     We run separate processes for each partition (and may subpartition further

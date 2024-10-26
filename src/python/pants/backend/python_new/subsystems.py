@@ -10,48 +10,47 @@ class PythonSettings(Subsystem):
     options_scope = "python-new"
     help = "Python-related settings for the repo."
 
-    class EnvironmentAware(Subsystem.EnvironmentAware):
-        settings_dir = StrOption(
-            default = "python-settings",
-            help = softwrap(
-                """
-                Python-related settings files are generated under this directory.
-                
-                These files are intended to be checked in to the repo.
-                """
-            )
+    settings_dir = StrOption(
+        default = "python-settings",
+        help = softwrap(
+            """
+            Python-related settings files are generated under this directory.
+            
+            These files are intended to be checked in to the repo.
+            """
         )
+    )
 
-        interpreters = DictOption[str](
-            default=None,
-            help=softwrap(
-                """
-                The Python interpreters in use in your repo.
-    
-                Must be a map from logical name, such as 'py3.11' to fully-specified
-                Python version, such as 'CPython==3.11.6' or 'PyPy==pypy3.10-7.3.12'. 
-                Wildcards are not allowed.
-                """
-            ),
-            metavar="<interpreter mapping>",
-        )
+    interpreters = DictOption[str](
+        default=None,
+        help=softwrap(
+            """
+            The Python interpreters in use in your repo.
 
-        default_interpreter = StrOption(
-            default=None,
-            help=softwrap(
-                """
-                The interpreter to use by default, if no explicit interpreter is specified.
-    
-                Must be one of the interpreter names as specified by the `interpreters` option in this scope.
-                """
-            )
-        )
+            Must be a map from logical name, such as 'py3.11' to fully-specified
+            Python version, such as 'CPython==3.11.6' or 'PyPy==pypy3.10-7.3.12'. 
+            Wildcards are not allowed.
+            """
+        ),
+        metavar="<interpreter mapping>",
+    )
 
-        lockfile = StrOption(
-            default=None,
-            help=softwrap(
-                """
-                Path to the lockfile to use for locking third-party dependencies.
-                """
-            )
+    default_interpreter = StrOption(
+        default=None,
+        help=softwrap(
+            """
+            The interpreter to use by default, if no explicit interpreter is specified.
+
+            Must be one of the interpreter names as specified by the `interpreters` option in this scope.
+            """
         )
+    )
+
+    lockfile = StrOption(
+        default=None,
+        help=softwrap(
+            """
+            Path to the lockfile to use for locking third-party dependencies.
+            """
+        )
+    )
