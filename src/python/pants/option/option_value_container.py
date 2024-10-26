@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, Mapping, Any
 
 from pants.option.ranked_value import Rank, RankedValue, Value
+from pants.util.frozendict import FrozenDict
 
 Key = str
 
@@ -42,7 +43,7 @@ class OptionValueContainerBuilder:
         self._set(key, value)
 
     def build(self) -> OptionValueContainer:
-        return OptionValueContainer(copy.copy(self._value_map))
+        return OptionValueContainer(self._value_map)
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,10 @@ class OptionValueContainer:
        See ranked_value.py for more details.
     """
 
-    _value_map: dict[Key, RankedValue]
+    _value_map: FrozenDict[Key, RankedValue]
+
+    def __init__(self, value_map: Mapping[Key, RankedValue]):
+        object.__setattr__(self, "_value_map", FrozenDict(value_map.items()))
 
     def get_keys(self) -> set[Key]:
         return set(self._value_map.keys())
@@ -126,6 +130,8 @@ class OptionValueContainer:
     def _get_underlying_value(self, key: Key):
         # Note that the key may exist with a value of None, so we can't just
         # test self._value_map.get() for None.
+        # TODO(benjy): The comment above makes no sense, since we immediately dereference
+        #  ranked_val.value without checking for None, so clearly that value is not possible.
         if key not in self._value_map:
             raise AttributeError(key)
         ranked_val = self._value_map[key]
@@ -150,3 +156,6 @@ class OptionValueContainer:
     def __iter__(self) -> Iterator[Key]:
         """Returns an iterator over all option names, in lexicographical order."""
         yield from sorted(self._value_map.keys())
+
+    def __hash__(self) -> int:
+        return hash(self._value_map)

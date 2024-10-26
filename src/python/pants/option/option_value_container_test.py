@@ -94,3 +94,11 @@ class OptionValueContainerTest(unittest.TestCase):
         # Verify that it's a shallow copy by modifying a referent in o and reading it in p.
         p.bar["b"] = 222
         assert {"a": 111, "b": 222} == z.bar
+
+    def test_hashing(self) -> None:
+        ob = OptionValueContainerBuilder()
+        ob.foo = RankedValue(Rank.FLAG, 1)
+        ob.bar = RankedValue(Rank.FLAG, {"a": 111})
+        ob.baz = RankedValue(Rank.CONFIG, [1, 2, 3])
+        o = ob.build()
+        assert hash(o)

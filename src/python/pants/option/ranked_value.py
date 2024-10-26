@@ -6,7 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from functools import total_ordering
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Iterator, Optional, Tuple, Union
+
+from pants.util.frozendict import FrozenDict
 
 
 # NB: Must mirror the Rank enum in src/rust/engine/options/src/lib.rs.
@@ -46,8 +48,18 @@ class Rank(Enum):
         return None
 
 
-Value = Union[str, int, float, None, Dict, Enum, List]
+Value = Union[None, str, int, float, FrozenDict, Enum, Tuple]
 ValueAndDetails = Tuple[Optional[Value], Optional[str]]
+
+
+def hashable(obj: Any) -> Value:
+    if isinstance(obj, (type(None), str, int, float, Enum)):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return tuple(hashable(x) for x in obj)
+    if isinstance(obj, (dict, FrozenDict)):
+        return FrozenDict((k, hashable(v)) for k, v in obj.items())
+    raise ValueError(f"Unsupported option value type: {type(obj)}")
 
 
 @dataclass(frozen=True)
@@ -84,6 +96,11 @@ class RankedValue:
      To tell these cases apart we need to know the "ranking" of the value.
     """
 
+    def __init__(self, rank: Rank, value: Any, details: str | None = None):
+        object.__setattr__(self, "rank", rank)
+        object.__setattr__(self, "value", hashable(value))
+        object.__setattr__(self, "details", details)
+
     @classmethod
     def prioritized_iter(
         cls,
@@ -109,4 +126,4 @@ class RankedValue:
 
     rank: Rank
     value: Value
-    details: str | None = None  # Optional details about the derivation of the value.
+    details: str | None  # Optional details about the derivation of the value.
