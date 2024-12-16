@@ -265,7 +265,7 @@ def test_get_all_help_info(tmp_path) -> None:
         native_options_config_discovery=False,
         known_scope_infos=[Global.get_scope_info(), Foo.get_scope_info(), Bar.get_scope_info()],
         args=["./pants", "--backend-packages=['internal_plugins.releases']"],
-        bootstrap_option_values=None,
+        bootstrap_option_info=None,
         include_derivation=True,
     )
     Global.register_options_on_scope(options, UnionMembership({}))

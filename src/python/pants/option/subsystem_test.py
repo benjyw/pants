@@ -71,7 +71,7 @@ def test_register_options_blessed(caplog) -> None:
         config=Config.load([]),
         known_scope_infos=[GoodToGo.get_scope_info()],
         args=["./pants"],
-        bootstrap_option_values=None,
+        bootstrap_option_info=None,
     )
     GoodToGo.register_options_on_scope(options, UnionMembership({}))
 
@@ -93,7 +93,7 @@ def test_register_plugin_options() -> None:
         config=Config.load([]),
         known_scope_infos=[Electrical.get_scope_info()],
         args=["./pants"],
-        bootstrap_option_values=None,
+        bootstrap_option_info=None,
     )
     Electrical.register_options_on_scope(
         options,

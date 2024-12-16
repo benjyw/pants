@@ -7,18 +7,19 @@ import dataclasses
 import logging
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, Iterator
 
 from pants.base.build_environment import get_buildroot
 from pants.base.deprecated import warn_or_error
 from pants.option.arg_splitter import ArgSplitter
-from pants.option.config import Config
+from pants.option.config import Config, ConfigSource
 from pants.option.errors import (
     ConfigValidationError,
     MutuallyExclusiveOptionError,
     UnknownFlagsError,
 )
 from pants.option.native_options import NativeOptionParser
+from pants.option.option_types import OptionInfo
 from pants.option.option_util import is_list_option
 from pants.option.option_value_container import OptionValueContainer, OptionValueContainerBuilder
 from pants.option.ranked_value import Rank, RankedValue
@@ -117,25 +118,28 @@ class Options:
     def create(
         cls,
         env: Mapping[str, str],
-        config: Config,
+        config_sources: Iterable[ConfigSource],
         known_scope_infos: Iterable[ScopeInfo],
         args: Sequence[str],
-        bootstrap_option_values: OptionValueContainer | None = None,
+        bootstrap_option_info: Iterator[OptionInfo, ...] | None = None,
         allow_unknown_options: bool = False,
         native_options_config_discovery: bool = True,
+        allow_pantsrc: bool = True,
         include_derivation: bool = False,
     ) -> Options:
         """Create an Options instance.
 
         :param env: a dict of environment variables.
-        :param config: data from a config file.
+        :param config_sources: sources of config data.
         :param known_scope_infos: ScopeInfos for all scopes that may be encountered.
         :param args: a list of cmd-line args; defaults to `sys.argv` if None is supplied.
-        :param bootstrap_option_values: An optional namespace containing the values of bootstrap
-               options. We can use these values when registering other options.
+        :param bootstrap_option_info: Registration info for bootstrap options (the options
+          needed to create a scheduler).
         :param allow_unknown_options: Whether to ignore or error on unknown cmd-line flags.
         :param native_options_config_discovery: Whether to discover config files in the native
             parser or use the ones supplied.
+        :param allow_pantsrc: Whether to read config from local .rc files. Typically
+          disabled in tests, for hermeticity.
         :param include_derivation: Whether to gather option value derivation information.
         """
         # We need registrars for all the intermediate scopes, so inherited option values
@@ -150,12 +154,12 @@ class Options:
             scope: registrar.known_scoped_args for scope, registrar in registrar_by_scope.items()
         }
 
-        config_to_pass = None if native_options_config_discovery else config.sources()
+        config_to_pass = None if native_options_config_discovery else config_sources
         native_parser = NativeOptionParser(
             args[1:],  # The native parser expects args without the sys.argv[0] binary name.
             env,
             config_sources=config_to_pass,
-            allow_pantsrc=True,
+            allow_pantsrc=allow_pantsrc,
             include_derivation=include_derivation,
             known_scopes_to_flags=known_scope_to_flags,
         )
@@ -177,15 +181,6 @@ class Options:
                 )
             )
 
-        if bootstrap_option_values:
-            spec_files = bootstrap_option_values.spec_files
-            if spec_files:
-                for spec_file in spec_files:
-                    with open(spec_file) as f:
-                        split_args.specs.extend(
-                            [line for line in [line.strip() for line in f] if line]
-                        )
-
         return cls(
             builtin_or_auxiliary_goal=split_args.builtin_or_auxiliary_goal,
             goals=split_args.goals,
@@ -195,7 +190,7 @@ class Options:
             passthru=split_args.passthru,
             registrar_by_scope=registrar_by_scope,
             native_parser=native_parser,
-            bootstrap_option_values=bootstrap_option_values,
+            bootstrap_option_info=bootstrap_option_info,
             known_scope_to_info=known_scope_to_info,
             allow_unknown_options=allow_unknown_options,
         )
@@ -210,7 +205,7 @@ class Options:
         passthru: list[str],
         registrar_by_scope: dict[str, OptionRegistrar],
         native_parser: NativeOptionParser,
-        bootstrap_option_values: OptionValueContainer | None,
+        bootstrap_option_info: Iterator[OptionInfo] | None,
         known_scope_to_info: dict[str, ScopeInfo],
         allow_unknown_options: bool = False,
     ) -> None:
@@ -226,9 +221,20 @@ class Options:
         self._passthru = passthru
         self._registrar_by_scope = registrar_by_scope
         self._native_parser = native_parser
-        self._bootstrap_option_values = bootstrap_option_values
         self._known_scope_to_info = known_scope_to_info
         self._allow_unknown_options = allow_unknown_options
+
+        self._bootstrap_option_values = (
+            self._compute_values(GLOBAL_SCOPE, bootstrap_option_info) if bootstrap_option_info
+            else None
+        )
+
+        if self._bootstrap_option_values:
+            for spec_file in self._bootstrap_option_values.spec_files:
+                with open(spec_file) as f:
+                    self._specs.extend(
+                        [line for line in [line.strip() for line in f] if line]
+                    )
 
     @property
     def native_parser(self) -> NativeOptionParser:
@@ -406,30 +412,16 @@ class Options:
                     hint=f"Use scope {scope} instead (options: {', '.join(explicit_keys)})",
                 )
 
-    # TODO: Eagerly precompute backing data for this?
-    @memoized_method
-    def for_scope(
+    def _compute_values(
         self,
         scope: str,
-        check_deprecations: bool = True,
+        option_registrations_iter: Iterator[OptionInfo]
     ) -> OptionValueContainer:
-        """Return the option values for the given scope.
-
-        Values are attributes of the returned object, e.g., options.foo.
-        Computed lazily per scope.
-
-        :API: public
-        :param scope: The scope to get options for.
-        :param check_deprecations: Whether to check for any deprecations conditions.
-        :return: An OptionValueContainer representing the option values for the given scope.
-        :raises pants.option.errors.ConfigValidationError: if the scope is unknown.
-        """
         builder = OptionValueContainerBuilder()
         mutex_map = defaultdict(list)
-        registrar = self.get_registrar(scope)
         scope_str = "global scope" if scope == GLOBAL_SCOPE else f"scope '{scope}'"
 
-        for option_info in registrar.option_registrations_iter():
+        for option_info in option_registrations_iter:
             dest = option_info.kwargs["dest"]
             val, rank = self._native_parser.get_value(scope=scope, option_info=option_info)
             explicitly_set = rank > Rank.HARDCODED
@@ -462,7 +454,28 @@ class Options:
                         )
                     )
             setattr(builder, dest, RankedValue(rank, val))
-        native_values = builder.build()
+        return builder.build()
+
+    # TODO: Eagerly precompute backing data for this?
+    @memoized_method
+    def for_scope(
+        self,
+        scope: str,
+        check_deprecations: bool = True,
+    ) -> OptionValueContainer:
+        """Return the option values for the given scope.
+
+        Values are attributes of the returned object, e.g., options.foo.
+        Computed lazily per scope.
+
+        :API: public
+        :param scope: The scope to get options for.
+        :param check_deprecations: Whether to check for any deprecations conditions.
+        :return: An OptionValueContainer representing the option values for the given scope.
+        :raises pants.option.errors.ConfigValidationError: if the scope is unknown.
+        """
+        registrar = self.get_registrar(scope)
+        native_values = self._compute_values(scope, registrar.option_registrations_iter())
 
         # Check for any deprecation conditions, which are evaluated using `self._flag_matchers`.
         if check_deprecations:

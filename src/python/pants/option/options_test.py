@@ -468,17 +468,18 @@ def _parse(
     env: dict[str, str] | None = None,
     config: dict[str, dict[str, Any]] | None = None,
     config2: dict[str, dict[str, Any]] | None = None,
-    bootstrap_option_values=None,
+    bootstrap_option_info=None,
     allow_unknown_options=False,
 ) -> Options:
     args = ["pants", *shlex.split(flags)]
+
     options = Options.create(
         env=env or {},
         config=_create_config(config, config2),
         native_options_config_discovery=False,
         known_scope_infos=_known_scope_infos,
         args=args,
-        bootstrap_option_values=bootstrap_option_values,
+        bootstrap_option_info=bootstrap_option_info,
         allow_unknown_options=allow_unknown_options,
     )
     _register(options)
@@ -1071,11 +1072,8 @@ def test_file_spec_args() -> None:
         tmp.flush()
         # Note that we prevent loading a real pants.toml during get_bootstrap_options().
         flags = f'--spec-files={tmp.name} --pants-config-files="[]" compile morx:tgt fleem:tgt'
-        bootstrapper = OptionsBootstrapper.create(
-            env={}, args=shlex.split(f"pants {flags}"), allow_pantsrc=False
-        )
-        bootstrap_options = bootstrapper.bootstrap_options.for_global_scope()
-        options = _parse(flags=flags, bootstrap_option_values=bootstrap_options)
+        bootstrap_options = [OptionInfo(args=("--spec-files",), kwargs={"type": list, "member_type": str, "dest": "spec_files"})]
+        options = _parse(flags=flags, bootstrap_option_info=iter(bootstrap_options))
         sorted_specs = sorted(options.specs)
         assert ["bar", "fleem:tgt", "foo", "morx:tgt"] == sorted_specs
 

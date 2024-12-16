@@ -41,7 +41,7 @@ class TestOptionsBootstrapper:
 
             args = [*self._config_path(fp.name), *(args or [])]
             bootstrapper = OptionsBootstrapper.create(env=env or {}, args=args, allow_pantsrc=False)
-            vals = bootstrapper.get_bootstrap_options().for_global_scope()
+            vals = bootstrapper.bootstrap_options.for_global_scope()
 
         vals_dict = {k: getattr(vals, k) for k in expected_entries}
         assert expected_entries == vals_dict
@@ -304,11 +304,7 @@ class TestOptionsBootstrapper:
     def test_bootstrap_short_options(self) -> None:
         def parse_options(*args: str) -> OptionValueContainer:
             full_args = [*args, *self._config_path(None)]
-            return (
-                OptionsBootstrapper.create(env={}, args=full_args, allow_pantsrc=False)
-                .get_bootstrap_options()
-                .for_global_scope()
-            )
+            return OptionsBootstrapper.create(env={}, args=full_args, allow_pantsrc=False).bootstrap_options.for_global_scope()
 
         # No short options passed - defaults presented.
         vals = parse_options()
@@ -329,8 +325,7 @@ class TestOptionsBootstrapper:
             full_args = [*args, *self._config_path(None)]
             return (
                 OptionsBootstrapper.create(env={}, args=full_args, allow_pantsrc=False)
-                .get_bootstrap_options()
-                .for_global_scope()
+                .bootstrap_options.for_global_scope()
             )
 
         vals = parse_options("main", "args", "-lwarn", "--", "-lerror")
@@ -404,7 +399,7 @@ class TestOptionsBootstrapper:
         ob = OptionsBootstrapper.create(
             env={}, args=[f"--pants-config-files=['{config1.as_posix()}']"], allow_pantsrc=False
         )
-        logdir = ob.get_bootstrap_options().for_global_scope().logdir
+        logdir = ob.bootstrap_options.for_global_scope().logdir
         assert "logdir1" == logdir
 
 
