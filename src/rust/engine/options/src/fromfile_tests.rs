@@ -8,6 +8,7 @@ use crate::{BuildRoot, DictEdit, DictEditAction, ListEdit, ListEditAction, Val};
 use maplit::hashmap;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 macro_rules! check_err {
     ($res:expr, $expected_suffix:expr $(,)?) => {
@@ -22,15 +23,15 @@ macro_rules! check_err {
 }
 
 fn expand(value: String) -> Result<Option<String>, ParseError> {
-    FromfileExpander::relative_to_cwd().expand(value)
+    FromfileExpander::relative_to_cwd(Arc::new(DirectFileReader {})).expand(value)
 }
 
 fn expand_to_list<T: Parseable>(value: String) -> Result<Option<Vec<ListEdit<T>>>, ParseError> {
-    FromfileExpander::relative_to_cwd().expand_to_list(value)
+    FromfileExpander::relative_to_cwd(Arc::new(DirectFileReader {})).expand_to_list(value)
 }
 
 fn expand_to_dict(value: String) -> Result<Option<Vec<DictEdit>>, ParseError> {
-    FromfileExpander::relative_to_cwd().expand_to_dict(value)
+    FromfileExpander::relative_to_cwd(Arc::new(DirectFileReader {})).expand_to_dict(value)
 }
 
 #[test]
@@ -60,8 +61,11 @@ fn test_fromfile_relative_to_buildroot() {
     let fromfile_relpath_str = format!("{}", fromfile_relpath_pathbuf.display());
     assert_eq!(
         Ok(Some("FOO".to_string())),
-        FromfileExpander::relative_to(BuildRoot::for_path(_tmpdir.into_path()))
-            .expand(format!("@{}", fromfile_relpath_str))
+        FromfileExpander::relative_to(
+            BuildRoot::for_path(_tmpdir.into_path()),
+            Arc::new(DirectFileReader {})
+        )
+        .expand(format!("@{}", fromfile_relpath_str))
     );
 }
 

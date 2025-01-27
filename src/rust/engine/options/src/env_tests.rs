@@ -3,13 +3,14 @@
 
 use crate::env::{Env, EnvReader};
 use crate::fromfile::test_util::write_fromfile;
-use crate::fromfile::FromfileExpander;
+use crate::fromfile::{DirectFileReader, FromfileExpander};
 use crate::{option_id, DictEdit, DictEditAction};
 use crate::{ListEdit, ListEditAction, OptionId, OptionsSource, Val};
 use maplit::hashmap;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 fn env<'a, I: IntoIterator<Item = (&'a str, &'a str)>>(vars: I) -> EnvReader {
     EnvReader::new(
@@ -18,7 +19,7 @@ fn env<'a, I: IntoIterator<Item = (&'a str, &'a str)>>(vars: I) -> EnvReader {
                 .map(|(k, v)| (k.to_owned(), v.to_owned()))
                 .collect::<HashMap<_, _>>(),
         ),
-        FromfileExpander::relative_to_cwd(),
+        FromfileExpander::relative_to_cwd(Arc::new(DirectFileReader {})),
     )
 }
 

@@ -1,6 +1,7 @@
 // Copyright 2024 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+use crate::externs::interface::PySession;
 use pyo3::exceptions::PyException;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 use pyo3::{prelude::*, BoundObject};
@@ -401,7 +402,7 @@ impl PyOptionParser {
 #[pymethods]
 impl PyOptionParser {
     #[new]
-    #[pyo3(signature = (args, env, configs, allow_pantsrc, include_derivation, known_scopes_to_flags, known_goals))]
+    #[pyo3(signature = (args, env, configs, allow_pantsrc, include_derivation, known_scopes_to_flags, known_goals, _session))]
     fn __new__<'py>(
         args: Vec<String>,
         env: &Bound<'py, PyDict>,
@@ -410,6 +411,7 @@ impl PyOptionParser {
         include_derivation: bool,
         known_scopes_to_flags: Option<HashMap<String, HashSet<String>>>,
         known_goals: Option<Vec<Bound<'py, PyGoalInfo>>>,
+        _session: Option<Bound<'py, PySession>>,
     ) -> PyResult<Self> {
         let env = env
             .items()
@@ -426,6 +428,8 @@ impl PyOptionParser {
             None,
             known_scopes_to_flags.as_ref(),
             known_goals.map(|gis| gis.iter().map(|gi| gi.borrow().0.clone()).collect()),
+            //session.0,
+            None,
         )
         .map_err(ParseError::new_err)?;
         Ok(Self(option_parser))

@@ -3,10 +3,11 @@
 
 use core::fmt::Debug;
 use maplit::hashmap;
+use std::sync::Arc;
 
 use crate::args::{Args, ArgsReader};
 use crate::fromfile::test_util::write_fromfile;
-use crate::fromfile::FromfileExpander;
+use crate::fromfile::{DirectFileReader, FromfileExpander};
 use crate::{option_id, DictEdit, DictEditAction, Scope, Val};
 use crate::{ListEdit, ListEditAction, OptionId, OptionsSource};
 
@@ -17,7 +18,7 @@ where
 {
     ArgsReader::new(
         Args::new(args.into_iter().map(|x| x.to_string())),
-        FromfileExpander::relative_to_cwd(),
+        FromfileExpander::relative_to_cwd(Arc::new(DirectFileReader {})),
     )
 }
 

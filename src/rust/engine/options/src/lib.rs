@@ -53,7 +53,7 @@ pub use self::config::ConfigSource;
 use self::config::{Config, ConfigReader};
 pub use self::env::Env;
 use self::env::EnvReader;
-use crate::fromfile::FromfileExpander;
+use crate::fromfile::{DirectFileReader, FileReader, FromfileExpander};
 use crate::parse::Parseable;
 pub use build_root::BuildRoot;
 pub use id::OptionId;
@@ -381,6 +381,7 @@ impl OptionParser {
         //  detect goals.
         known_scopes_to_flags: Option<&HashMap<String, HashSet<String>>>,
         known_goals: Option<Vec<GoalInfo>>,
+        file_reader: Option<Arc<dyn FileReader>>,
     ) -> Result<OptionParser, String> {
         let has_provided_configs = config_sources.is_some();
 
@@ -388,7 +389,10 @@ impl OptionParser {
         let buildroot_string = buildroot.convert_to_string()?;
 
         let arg_splitter = ArgSplitter::new(buildroot.as_path(), known_goals.unwrap_or_default());
-        let fromfile_expander = FromfileExpander::relative_to(buildroot.clone());
+        let fromfile_expander = FromfileExpander::relative_to(
+            buildroot.clone(),
+            file_reader.unwrap_or(Arc::new(DirectFileReader {})),
+        );
         let args_reader = ArgsReader::new(args, fromfile_expander.clone());
         let mut sources: BTreeMap<Source, Arc<dyn OptionsSource>> = BTreeMap::new();
 

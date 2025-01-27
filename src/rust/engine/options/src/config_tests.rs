@@ -1,21 +1,21 @@
 // Copyright 2021 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+use crate::config::{interpolate_string, ConfigSource};
+use crate::{
+    option_id, DictEdit, DictEditAction, ListEdit, ListEditAction, OptionId, OptionsSource, Val,
+};
 use maplit::{hashmap, hashset};
 use regex::Regex;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
-
-use crate::config::{interpolate_string, ConfigSource};
-use crate::{
-    option_id, DictEdit, DictEditAction, ListEdit, ListEditAction, OptionId, OptionsSource, Val,
-};
+use std::sync::Arc;
 
 use crate::config::{Config, ConfigReader};
 use crate::fromfile::test_util::write_fromfile;
-use crate::fromfile::FromfileExpander;
+use crate::fromfile::{DirectFileReader, FromfileExpander};
 use tempfile::TempDir;
 
 fn maybe_config(file_content: &str) -> Result<ConfigReader, String> {
@@ -32,7 +32,12 @@ fn maybe_config(file_content: &str) -> Result<ConfigReader, String> {
             ("seed2".to_string(), "seed2val".to_string()),
         ]),
     )
-    .map(|config| ConfigReader::new(config, FromfileExpander::relative_to_cwd()))
+    .map(|config| {
+        ConfigReader::new(
+            config,
+            FromfileExpander::relative_to_cwd(Arc::new(DirectFileReader {})),
+        )
+    })
 }
 
 fn config(file_content: &str) -> ConfigReader {

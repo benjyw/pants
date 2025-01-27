@@ -7,11 +7,11 @@ import dataclasses
 import logging
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, Optional
 
 from pants.base.deprecated import warn_or_error
 from pants.engine.fs import FileContent
-from pants.engine.internals.native_engine import PyGoalInfo, PyPantsCommand
+from pants.engine.internals.native_engine import PyGoalInfo, PyPantsCommand, PySession
 from pants.option.errors import (
     ConfigValidationError,
     MutuallyExclusiveOptionError,
@@ -123,6 +123,7 @@ class Options:
         allow_unknown_options: bool = False,
         allow_pantsrc: bool = True,
         include_derivation: bool = False,
+        session: Optional[PySession] = None,
     ) -> Options:
         """Create an Options instance.
 
@@ -134,6 +135,9 @@ class Options:
         :param allow_pantsrc: Whether to read config from local .rc files. Typically
           disabled in tests, for hermeticity.
         :param include_derivation: Whether to gather option value derivation information.
+        :param session: If provided, use this session to read and invalidate @fromfile options.
+          Otherwise, values will be read directly, and not invalidated on changes to the fromfile
+          (until a pantsd restart).
         """
         # We need registrars for all the intermediate scopes, so inherited option values
         # can propagate through them.
@@ -160,6 +164,7 @@ class Options:
             include_derivation=include_derivation,
             known_scopes_to_flags=known_scope_to_flags,
             known_goals=known_goals,
+            session=session,
         )
 
         command = native_parser.get_command()

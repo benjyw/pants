@@ -13,7 +13,8 @@ from typing import Any, Mapping, Optional, Sequence, Tuple
 from pants.base.build_environment import get_buildroot
 from pants.engine.fs import FileContent
 from pants.engine.internals import native_engine
-from pants.engine.internals.native_engine import PyConfigSource, PyGoalInfo, PyPantsCommand
+from pants.engine.internals.native_engine import PyConfigSource, PyGoalInfo, PyPantsCommand, \
+    PySession
 from pants.option.custom_types import _flatten_shlexed_list, dir_option, file_option, shell_str
 from pants.option.errors import BooleanOptionNameWithNo, OptionsError, ParseError
 from pants.option.option_types import OptionInfo
@@ -65,6 +66,7 @@ class NativeOptionParser:
         include_derivation: bool,
         known_scopes_to_flags: dict[str, frozenset[str]],
         known_goals: Sequence[PyGoalInfo],
+        session: Optional[PySession],
     ):
         # Remember these args so this object can clone itself in with_derivation() below.
         (
@@ -74,6 +76,7 @@ class NativeOptionParser:
             self._allow_pantsrc,
             self._known_scopes_to_flags,
             self._known_goals,
+            self._session,
         ) = (
             args,
             env,
@@ -81,6 +84,7 @@ class NativeOptionParser:
             allow_pantsrc,
             known_scopes_to_flags,
             known_goals,
+            session,
         )
 
         py_config_sources = (
@@ -96,6 +100,7 @@ class NativeOptionParser:
             include_derivation,
             known_scopes_to_flags,
             known_goals,
+            session,
         )
 
         # (type, member_type) -> native get for that type.
@@ -124,6 +129,7 @@ class NativeOptionParser:
             include_derivation=True,
             known_scopes_to_flags=self._known_scopes_to_flags,
             known_goals=self._known_goals,
+            session=self._session,
         )
 
     def get_value(self, *, scope: str, option_info: OptionInfo) -> Tuple[Any, Rank]:

@@ -103,7 +103,7 @@ class OptionValueContainer:
     def is_default(self, key: Key) -> bool:
         """Returns `True` if the value for the specified key was not supplied by the user.
 
-        I.e. the option was NOT specified config files, on the cli, or in environment variables.
+        I.e. the option was NOT specified in config files, on the cli, or in environment variables.
 
         :param string key: The name of the option to check.
         :returns: `True` if the user did not set the value for this option.

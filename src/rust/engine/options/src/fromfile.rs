@@ -6,7 +6,9 @@ use super::{BuildRoot, DictEdit, DictEditAction, ListEdit, ListEditAction};
 use crate::parse::{mk_parse_err, parse_dict, ParseError, Parseable};
 use log::warn;
 use serde::de::Deserialize;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::{fs, io};
 
 // If the corresponding unexpanded value points to a @fromfile, then the
@@ -51,25 +53,41 @@ fn try_deserialize<'a, DE: Deserialize<'a>>(
     }
 }
 
+pub trait FileReader: Send + Sync + Debug {
+    fn read_to_string(&self, path: &Path) -> io::Result<String>;
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DirectFileReader {}
+
+impl FileReader for DirectFileReader {
+    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+        fs::read_to_string(path)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct FromfileExpander {
     build_root: BuildRoot,
+    file_reader: Arc<dyn FileReader>,
 }
 
 impl FromfileExpander {
     // Creates a FromfileExpander that treats relpaths as relative to the build root.
-    pub fn relative_to(build_root: BuildRoot) -> Self {
+    pub fn relative_to(build_root: BuildRoot, file_reader: Arc<dyn FileReader>) -> Self {
         Self {
-            build_root: build_root,
+            build_root,
+            file_reader,
         }
     }
 
     // Creates a FromfileExpander that treats relpaths as relative to the CWD.
     // Useful in tests.
     #[cfg(test)]
-    pub(crate) fn relative_to_cwd() -> Self {
+    pub(crate) fn relative_to_cwd(file_reader: Arc<dyn FileReader>) -> Self {
         Self {
             build_root: BuildRoot::for_path(PathBuf::from("")),
+            file_reader,
         }
     }
 
@@ -83,7 +101,7 @@ impl FromfileExpander {
                     Some(subsuffix) => {
                         // @? means the path is allowed to not exist.
                         let path = self.build_root.join(subsuffix);
-                        match fs::read_to_string(&path) {
+                        match self.file_reader.read_to_string(&path) {
                             Ok(content) => Ok((Some(path), Some(content))),
                             Err(err) if err.kind() == io::ErrorKind::NotFound => {
                                 warn!("Optional file config '{}' does not exist.", path.display());
@@ -94,8 +112,10 @@ impl FromfileExpander {
                     }
                     _ => {
                         let path = self.build_root.join(suffix);
-                        let content =
-                            fs::read_to_string(&path).map_err(|e| mk_parse_err(e, &path))?;
+                        let content = self
+                            .file_reader
+                            .read_to_string(&path)
+                            .map_err(|e| mk_parse_err(e, &path))?;
                         Ok((Some(path), Some(content)))
                     }
                 }

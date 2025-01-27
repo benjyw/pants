@@ -74,6 +74,7 @@ fn with_setup(
         Some(BuildRoot::find_from(buildroot.path()).unwrap()),
         None,
         None,
+        None,
     )
     .unwrap();
     do_check(option_parser);
@@ -587,6 +588,7 @@ fn test_do_not_load_pantsrc_if_configs_passed() {
         None,
         None,
         None,
+        None,
     );
 
     let found_sources = load_0.unwrap().sources;
@@ -670,6 +672,7 @@ fn test_config_path_discovery() {
             Some(BuildRoot::find_from(buildroot.path()).unwrap()),
             None,
             None,
+            None,
         )
         .unwrap()
         .get_config_file_paths()
@@ -690,6 +693,7 @@ fn test_config_path_discovery() {
             Some(BuildRoot::find_from(buildroot.path()).unwrap()),
             None,
             None,
+            None,
         )
         .unwrap()
         .get_config_file_paths()
@@ -707,6 +711,7 @@ fn test_config_path_discovery() {
             false,
             false,
             Some(BuildRoot::find_from(buildroot.path()).unwrap()),
+            None,
             None,
             None,
         )
@@ -781,6 +786,7 @@ fn test_cli_alias_validation() {
         Some(BuildRoot::find_from(buildroot.path()).unwrap()),
         Some(&hashmap!{"foo".to_string() => hashset!{}}),
         None,
+        None,
     ).err().unwrap());
 }
 
@@ -808,6 +814,7 @@ fn test_spec_files() {
             false,
             true,
             Some(BuildRoot::find_from(buildroot.path()).unwrap()),
+            None,
             None,
             None,
         )

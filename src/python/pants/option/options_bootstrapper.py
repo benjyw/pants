@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Iterable, Mapping, Sequence, Optional
 
 from pants.base.build_environment import pants_version
 from pants.base.exceptions import BuildConfigurationError
+from pants.engine.internals.scheduler import Scheduler, SchedulerSession
 from pants.engine.unions import UnionMembership
 from pants.option.global_options import BootstrapOptions, GlobalOptions
 from pants.option.option_types import collect_options_info
@@ -106,6 +107,7 @@ class OptionsBootstrapper:
         known_scope_infos: Sequence[ScopeInfo],
         union_membership: UnionMembership,
         allow_unknown_options: bool = False,
+        session: Optional[SchedulerSession] = None,
     ) -> Options:
         options = Options.create(
             args=self.args,
@@ -114,6 +116,7 @@ class OptionsBootstrapper:
             known_scope_infos=known_scope_infos,
             allow_unknown_options=allow_unknown_options,
             allow_pantsrc=self.allow_pantsrc,
+            session=session,
         )
 
         distinct_subsystem_classes = set()
@@ -131,16 +134,19 @@ class OptionsBootstrapper:
         known_scope_infos: Iterable[ScopeInfo],
         union_membership: UnionMembership,
         allow_unknown_options: bool = False,
+        session: Optional[SchedulerSession] = None,
     ) -> Options:
         """Get the full Options instance bootstrapped by this object for the given known scopes."""
         return self._full_options(
             tuple(sorted(set(known_scope_infos), key=lambda si: si.scope)),
             union_membership,
             allow_unknown_options=allow_unknown_options,
+            session=session,
         )
 
     def full_options(
-        self, build_configuration: BuildConfiguration, union_membership: UnionMembership
+        self, build_configuration: BuildConfiguration, union_membership: UnionMembership,
+        session: Optional[SchedulerSession] = None,
     ) -> Options:
         # Parse and register options.
         known_scope_infos = [
@@ -150,6 +156,7 @@ class OptionsBootstrapper:
             known_scope_infos,
             union_membership,
             allow_unknown_options=build_configuration.allow_unknown_options,
+            session=session,
         )
 
         global_options = options.for_global_scope()

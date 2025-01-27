@@ -443,7 +443,7 @@ impl PyLocalStoreOptions {
 }
 
 #[pyclass]
-struct PySession(Session);
+pub(crate) struct PySession(Session);
 
 #[pymethods]
 impl PySession {
