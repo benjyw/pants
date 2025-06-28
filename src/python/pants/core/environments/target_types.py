@@ -160,6 +160,18 @@ class LocalWorkspaceEnvironmentTarget(Target):
     )
 
 
+class PassthroughEnvVars(StringSequenceField):
+    alias = "passthrough_env_vars"
+    default = ()
+    value: tuple[str, ...]
+    help = help_text(
+        """
+        Names of environment variables whose values will be taken from the shell invoking pants
+        and make available to processes running in the non-local environment.
+        """
+    )
+
+
 class DockerImageField(StringField):
     alias = "image"
     required = True
@@ -239,6 +251,7 @@ class DockerEnvironmentTarget(Target):
         DockerImageField,
         DockerPlatformField,
         DockerFallbackEnvironmentField,
+        PassthroughEnvVars,
     )
     help = help_text(
         """
@@ -331,6 +344,7 @@ class RemoteEnvironmentTarget(Target):
         RemotePlatformField,
         RemoteExtraPlatformPropertiesField,
         RemoteFallbackEnvironmentField,
+        PassthroughEnvVars,
         RemoteEnvironmentCacheBinaryDiscovery,
     )
     help = help_text(
