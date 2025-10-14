@@ -40,7 +40,7 @@ impl Instance {
         local_parallelism: usize,
         executor: Executor,
     ) -> Result<Instance, String> {
-        let stderr_fd = stdio::get_destination().stderr_as_raw_fd()?;
+        let stderr_fd = stdio::get_destination().stderr_as_raw_file_handle()?.0;
         let (terminal_width, terminal_height) = terminal_size_using_fd(stderr_fd)
             .map(|terminal_dimensions| (terminal_dimensions.0.0, terminal_dimensions.1.0 - 1))
             .unwrap_or((50, local_parallelism.try_into().unwrap()));

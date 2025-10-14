@@ -45,6 +45,7 @@ use pyo3::{Bound, IntoPyObject, Py, PyAny, PyRef, create_exception};
 use regex::Regex;
 use remote::remote_cache::RemoteCacheWarningsBehavior;
 use rule_graph::{self, RuleGraph, RuleId};
+use stdio::RawFileHandle;
 use store::RemoteProvider;
 use task_executor::Executor;
 use tokio::sync::Mutex;
@@ -2065,7 +2066,11 @@ fn stdio_initialize(
 
 #[pyfunction]
 fn stdio_thread_console_set(stdin_fileno: i32, stdout_fileno: i32, stderr_fileno: i32) {
-    let destination = stdio::new_console_destination(stdin_fileno, stdout_fileno, stderr_fileno);
+    let destination = stdio::new_console_destination(
+        RawFileHandle(stdin_fileno),
+        RawFileHandle(stdout_fileno),
+        RawFileHandle(stderr_fileno),
+    );
     stdio::set_thread_destination(destination);
 }
 

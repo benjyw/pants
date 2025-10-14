@@ -17,6 +17,10 @@ use indicatif::ProgressStyle;
 use indicatif::WeakProgressBar;
 use parking_lot::Mutex;
 
+#[cfg(unix)]
+use stdio::TermReadDestination;
+#[cfg(unix)]
+use stdio::TermWriteDestination;
 use workunit_store::SpanId;
 use workunit_store::format_workunit_duration_ms;
 
@@ -113,6 +117,16 @@ impl IndicatifInstance {
     }
 }
 
+#[cfg(unix)]
+fn get_term(term_read: TermReadDestination, term_write: TermWriteDestination) -> console::Term {
+    let use_color = term_write.use_color;
+    console::Term::read_write_pair_with_style(
+        term_read,
+        term_write,
+        console::Style::new().force_styling(use_color),
+    )
+}
+
 fn setup_bar_outputs(
     stderr_dest_bar: Arc<Mutex<Option<WeakProgressBar>>>,
 ) -> Result<MultiProgress, String> {
@@ -131,12 +145,7 @@ fn setup_bar_outputs(
             Ok(())
         }))?
     };
-    let stderr_use_color = term_stderr_write.use_color;
-    let term = console::Term::read_write_pair_with_style(
-        term_read,
-        term_stderr_write,
-        console::Style::new().force_styling(stderr_use_color),
-    );
+    let term = get_term(term_read, term_stderr_write);
     let draw_target = ProgressDrawTarget::term(term, ConsoleUI::render_rate_hz() * 2);
     let multi_progress = MultiProgress::with_draw_target(draw_target);
     Ok(multi_progress)

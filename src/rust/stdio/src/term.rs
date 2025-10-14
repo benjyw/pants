@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 use std::fs::File;
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::sync::Arc;
 
@@ -68,9 +69,10 @@ impl Read for TermReadDestination {
     }
 }
 
+#[cfg(unix)]
 impl AsRawFd for TermReadDestination {
     fn as_raw_fd(&self) -> RawFd {
-        self.0.console.lock().as_ref().unwrap().stdin_as_raw_fd()
+        self.0.console.lock().as_ref().unwrap().stdin_as_raw_file_handle().as_raw_fd()
     }
 }
 
@@ -99,6 +101,7 @@ impl Write for TermWriteDestination {
     }
 }
 
+#[cfg(unix)]
 impl AsRawFd for TermWriteDestination {
     fn as_raw_fd(&self) -> RawFd {
         if self.is_stderr {
@@ -107,17 +110,39 @@ impl AsRawFd for TermWriteDestination {
                 .lock()
                 .as_ref()
                 .unwrap()
-                .stderr_as_raw_fd()
+                .stderr_as_raw_file_handle()
+                .as_raw_fd()
         } else {
             self.destination
                 .console
                 .lock()
                 .as_ref()
                 .unwrap()
-                .stdout_as_raw_fd()
+                .stdout_as_raw_file_handle()
+                .as_raw_fd()
         }
     }
 }
+
+// impl AsRawFileHandle for TermWriteDestination {
+//     fn as_raw_file_handle(&self) -> RawFileHandle {
+//         if self.is_stderr {
+//             self.destination
+//                 .console
+//                 .lock()
+//                 .as_ref()
+//                 .unwrap()
+//                 .stderr_as_raw_file_handle()
+//         } else {
+//             self.destination
+//                 .console
+//                 .lock()
+//                 .as_ref()
+//                 .unwrap()
+//                 .stdout_as_raw_file_handle()
+//         }
+//     }
+// }
 
 impl Drop for TermDestination {
     fn drop(&mut self) {
@@ -136,6 +161,7 @@ pub trait TryCloneAsFile {
     fn try_clone_as_file(&self) -> std::io::Result<File>;
 }
 
+#[cfg(unix)]
 impl<T: AsRawFd> TryCloneAsFile for T {
     fn try_clone_as_file(&self) -> std::io::Result<File> {
         let raw_fd = self.as_raw_fd();

@@ -10,12 +10,104 @@ use std::fmt;
 use std::fs::File;
 use std::future::Future;
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tokio::task_local;
 
+// RawFileHandle is a platform-agnostic wrapper around a unix RawFd or a windows RawHandle.
+// In both cases the underlying representation is actually a 32-bit integer, but we don't
+// need to know that here.
+
+#[cfg(unix)]
+pub struct RawFileHandle(pub RawFd);
+
+#[cfg(windows)]
+pub struct RawFileHandle(pub RawHandle);
+
+impl From<RawFileHandle> for i32 {
+    fn from(rfh: RawFileHandle) -> Self {
+        rfh.0
+    }
+}
+
+trait FromRawFileHandle {
+    unsafe fn from_raw_file_handle(rfh: RawFileHandle) -> Self;
+}
+
+pub trait AsRawFileHandle {
+    fn as_raw_file_handle(&self) -> RawFileHandle;
+}
+
+trait IntoRawFileHandle {
+    fn into_raw_file_handle(self) -> RawFileHandle;
+}
+
+#[cfg(unix)]
+impl FromRawFileHandle for File {
+    #[inline]
+    unsafe fn from_raw_file_handle(rfh: RawFileHandle) -> Self {
+        unsafe { File::from_raw_fd(rfh.0) }
+    }
+}
+
+#[cfg(unix)]
+impl AsRawFileHandle for File {
+    #[inline]
+    fn as_raw_file_handle(&self) -> RawFileHandle {
+        RawFileHandle(self.as_raw_fd())
+    }
+}
+
+#[cfg(unix)]
+impl IntoRawFileHandle for File {
+    #[inline]
+    fn into_raw_file_handle(self) -> RawFileHandle {
+        RawFileHandle(self.into_raw_fd())
+    }
+}
+
+#[cfg(unix)]
+impl AsRawFd for RawFileHandle {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0
+    }
+}
+
+#[cfg(windows)]
+impl FromRawFileHandle for File {
+    #[inline]
+    unsafe fn from_raw_file_handle(rfh: RawFileHandle) -> Self {
+        unsafe { File::from_raw_handle(rfh.0) }
+    }
+}
+
+#[cfg(windows)]
+impl AsRawFileHandle for File {
+    #[inline]
+    fn as_raw_file_handle(&self) -> RawFileHandle {
+        RawFileHandle(self.as_raw_handle())
+    }
+}
+
+#[cfg(windows)]
+impl IntoRawFileHandle for File {
+    #[inline]
+    fn into_raw_file_handle(self) -> RawFileHandle {
+        RawFileHandle(self.into_raw_handle())
+    }
+}
+
+#[cfg(windows)]
+impl AsRawHandle for RawFileHandle {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.0
+    }
+}
 ///
 /// A Console wraps some "borrowed" file handles: when it is dropped, we forget about the file
 /// handles rather than closing them. The file handles are optional only so that they may be
@@ -30,12 +122,12 @@ struct Console {
 }
 
 impl Console {
-    fn new(stdin_fd: RawFd, stdout_fd: RawFd, stderr_fd: RawFd) -> Console {
+    fn new(stdin_rfh: RawFileHandle, stdout_rfh: RawFileHandle, stderr_rfh: RawFileHandle) -> Console {
         let (stdin, stdout, stderr) = unsafe {
             (
-                File::from_raw_fd(stdin_fd),
-                File::from_raw_fd(stdout_fd),
-                File::from_raw_fd(stderr_fd),
+                File::from_raw_file_handle(stdin_rfh),
+                File::from_raw_file_handle(stdout_rfh),
+                File::from_raw_file_handle(stderr_rfh),
             )
         };
         Console {
@@ -62,29 +154,29 @@ impl Console {
         stderr.flush()
     }
 
-    fn stdin_as_raw_fd(&self) -> RawFd {
-        self.stdin_handle.as_ref().unwrap().as_raw_fd()
+    fn stdin_as_raw_file_handle(&self) -> RawFileHandle {
+        self.stdin_handle.as_ref().unwrap().as_raw_file_handle()
     }
 
     fn stderr_set_use_color(&mut self, use_color: bool) {
         self.stderr_use_color = use_color;
     }
 
-    fn stdout_as_raw_fd(&self) -> RawFd {
-        self.stdout_handle.as_ref().unwrap().as_raw_fd()
+    fn stdout_as_raw_file_handle(&self) -> RawFileHandle {
+        self.stdout_handle.as_ref().unwrap().as_raw_file_handle()
     }
 
-    fn stderr_as_raw_fd(&self) -> RawFd {
-        self.stderr_handle.as_ref().unwrap().as_raw_fd()
+    fn stderr_as_raw_file_handle(&self) -> RawFileHandle {
+        self.stderr_handle.as_ref().unwrap().as_raw_file_handle()
     }
 }
 
 impl Drop for Console {
     fn drop(&mut self) {
         // "Forget" about our file handles without closing them.
-        let _ = self.stdin_handle.take().unwrap().into_raw_fd();
-        let _ = self.stdout_handle.take().unwrap().into_raw_fd();
-        let _ = self.stderr_handle.take().unwrap().into_raw_fd();
+        let _ = self.stdin_handle.take().unwrap().into_raw_file_handle();
+        let _ = self.stdout_handle.take().unwrap().into_raw_file_handle();
+        let _ = self.stderr_handle.take().unwrap().into_raw_file_handle();
     }
 }
 
@@ -334,13 +426,13 @@ impl Destination {
     }
 
     ///
-    /// If stdin is backed by a real file, returns it as a RawFd. All usage of `RawFd` is unsafe,
-    /// but this method is additionally unsafe because the real file might have been closed by the
-    /// time the caller interacts with it.
+    /// If stdin is backed by a real file, returns it as a RawFileHandle.
+    /// All usage of `RawFileHandle` is unsafe, but this method is additionally unsafe because the
+    /// real file might have been closed by the time the caller interacts with it.
     ///
-    pub fn stdin_as_raw_fd(&self) -> Result<RawFd, String> {
+    pub fn stdin_as_raw_file_handle(&self) -> Result<RawFileHandle, String> {
         match &*self.0.lock() {
-      InnerDestination::Console(console) => Ok(console.stdin_as_raw_fd()),
+      InnerDestination::Console(console) => Ok(console.stdin_as_raw_file_handle()),
       InnerDestination::Logging => {
         Err("No associated file descriptor for the Logging destination".to_owned())
       }
@@ -351,13 +443,13 @@ impl Destination {
     }
 
     ///
-    /// If stdout is backed by a real file, returns it as a RawFd. All usage of `RawFd` is unsafe,
-    /// but this method is additionally unsafe because the real file might have been closed by the
-    /// time the caller interacts with it.
+    /// If stdout is backed by a real file, returns it as a RawFileHandle.
+    /// All usage of `RawFileHandle` is unsafe, but this method is additionally unsafe because the
+    /// real file might have been closed by the time the caller interacts with it.
     ///
-    pub fn stdout_as_raw_fd(&self) -> Result<RawFd, String> {
+    pub fn stdout_as_raw_file_handle(&self) -> Result<RawFileHandle, String> {
         match &*self.0.lock() {
-      InnerDestination::Console(console) => Ok(console.stdout_as_raw_fd()),
+      InnerDestination::Console(console) => Ok(console.stdout_as_raw_file_handle()),
       InnerDestination::Logging => {
         Err("No associated file descriptor for the Logging destination".to_owned())
       }
@@ -368,13 +460,13 @@ impl Destination {
     }
 
     ///
-    /// If stdout is backed by a real file, returns it as a RawFd. All usage of `RawFd` is unsafe,
-    /// but this method is additionally unsafe because the real file might have been closed by the
-    /// time the caller interacts with it.
+    /// If stderr is backed by a real file, returns it as a RawFileHandle.
+    /// All usage of `RawFileHandle` is unsafe, but this method is additionally unsafe because the
+    /// real file might have been closed by the time the caller interacts with it.
     ///
-    pub fn stderr_as_raw_fd(&self) -> Result<RawFd, String> {
+    pub fn stderr_as_raw_file_handle(&self) -> Result<RawFileHandle, String> {
         match &*self.0.lock() {
-      InnerDestination::Console(console) => Ok(console.stderr_as_raw_fd()),
+      InnerDestination::Console(console) => Ok(console.stderr_as_raw_file_handle()),
       InnerDestination::Logging => {
         Err("No associated file descriptor for the Logging destination".to_owned())
       }
@@ -404,12 +496,12 @@ task_local! {
 /// using `set_thread_destination`.
 ///
 pub fn new_console_destination(
-    stdin_fd: RawFd,
-    stdout_fd: RawFd,
-    stderr_fd: RawFd,
+    stdin_rfh: RawFileHandle,
+    stdout_rfh: RawFileHandle,
+    stderr_rfh: RawFileHandle,
 ) -> Arc<Destination> {
     Arc::new(Destination(Mutex::new(InnerDestination::Console(
-        Console::new(stdin_fd, stdout_fd, stderr_fd),
+        Console::new(stdin_rfh, stdout_rfh, stderr_rfh),
     ))))
 }
 
