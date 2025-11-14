@@ -873,6 +873,14 @@ def execution_add_root_select(
     param_vals: Sequence,
     product: type,
 ) -> None: ...
+def execution_add_root_by_name(
+    scheduler: PyScheduler,
+    execution_request: PyExecutionRequest,
+    param_vals: Sequence,
+    rule_id: str,
+    product: type,
+    explicit_args_arity: int,
+) -> None: ...
 def nailgun_server_await_shutdown(server: PyNailgunServer) -> None: ...
 def nailgun_server_create(
     executor: PyExecutor, port: int, runner: RawFdRunner

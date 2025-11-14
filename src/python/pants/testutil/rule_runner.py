@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path, PurePath
 from tempfile import mkdtemp
-from typing import Any, Generic, TypeVar, cast, overload
+from typing import Any, Generic, TypeVar, cast, get_type_hints, overload
 
 from pants.base.build_environment import get_buildroot
 from pants.base.build_root import BuildRoot
@@ -36,6 +36,7 @@ from pants.engine.fs import CreateDigest, Digest, FileContent, Snapshot, Workspa
 from pants.engine.goal import CurrentExecutingGoals, Goal
 from pants.engine.internals import native_engine, options_parsing
 from pants.engine.internals.native_engine import ProcessExecutionEnvironment, PyExecutor
+from pants.engine.internals.rule_visitor import _lookup_return_type
 from pants.engine.internals.scheduler import ExecutionError, Scheduler, SchedulerSession
 from pants.engine.internals.selectors import Call, Effect, Get, Params
 from pants.engine.internals.session import SessionValues
@@ -410,6 +411,22 @@ class RuleRunner:
         )
         with self.pushd():
             result = assert_single_element(self.scheduler.product_request(output_type, params))
+        return cast(_O, result)
+
+    def call(self, rule_func: Callable, *args) -> _O:
+        params = (
+            Params(*args, self.inherent_environment)
+            if self.inherent_environment
+            else Params(*args)
+        )
+        rule_id = getattr(rule_func, "rule_id", None)
+        if not rule_id:
+            raise ValueError(f"Function does not have a rule_id: {rule_func}")
+        return_type = _lookup_return_type(rule_func, check=True)
+        with self.pushd():
+            result = assert_single_element(
+                self.scheduler.call_request(rule_id, return_type, explicit_args_arity=len(args), params=params)
+            )
         return cast(_O, result)
 
     def run_goal_rule(

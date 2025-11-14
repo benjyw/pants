@@ -328,6 +328,16 @@ class Scheduler:
             self.py_scheduler, execution_request, params, product
         )
 
+    def execution_add_root_by_name(
+        self, execution_request: PyExecutionRequest, subject_or_params: Any | Params, rule_id: str, product: type, explicit_args_arity: int,
+    ) -> None:
+        params = self._to_params_list(subject_or_params)
+        native_engine.execution_add_root_by_name(
+            self.py_scheduler, execution_request, params, rule_id=rule_id,
+            product=product,
+            explicit_args_arity=explicit_args_arity,
+        )
+
     @property
     def visualize_to_dir(self) -> str | None:
         return self._visualize_to_dir
@@ -446,6 +456,37 @@ class SchedulerSession:
         )
         for product, subject in requests:
             self._scheduler.execution_add_root_select(native_execution_request, subject, product)
+        return ExecutionRequest(native_execution_request)
+
+    def execution_request_by_name(
+        self,
+        rule_id: str,
+        product: type,
+        explicit_args_arity: int,
+        params: Params,
+        poll: bool = False,
+        poll_delay: float | None = None,
+        timeout: float | None = None,
+    ) -> ExecutionRequest:
+        """Create and return an ExecutionRequest for the given (rule name, subject) pairs.
+
+        :param rule_id: The rule to execute.
+        :param params: The rule params.
+        :param explicit_args_arity: The number of explicit args passed in the call.
+        :param poll: True to wait for _all_ of the given roots to
+          have changed since their last observed values in this SchedulerSession.
+        :param poll_delay: A delay (in seconds) to wait after observing a change, and before
+          beginning to compute a new value.
+        :param timeout: An optional timeout to wait for the request to complete (in seconds). If the
+          request has not completed before the timeout has elapsed, ExecutionTimeoutError is raised.
+        :returns: An ExecutionRequest for the given products and subjects.
+        """
+        native_execution_request = PyExecutionRequest(
+            poll=poll,
+            poll_delay_in_ms=int(poll_delay * 1000) if poll_delay else None,
+            timeout_in_ms=int(timeout * 1000) if timeout else None,
+        )
+        self._scheduler.execution_add_root_by_name(native_execution_request, params, rule_id, product, explicit_args_arity)
         return ExecutionRequest(native_execution_request)
 
     def invalidate_files(self, direct_filenames: Iterable[str]) -> int:
@@ -591,6 +632,37 @@ class SchedulerSession:
         """
         request = self.execution_request(
             [(product, subject)],
+            poll=poll,
+            poll_delay=poll_delay,
+            timeout=timeout,
+        )
+        return self.execute(request)
+
+    def call_request(
+        self,
+        rule_id: str,
+        product: type,
+        explicit_args_arity: int,
+        params: Params,
+        *,
+        poll: bool = False,
+        poll_delay: float | None = None,
+        timeout: float | None = None,
+    ) -> list:
+        """Executes a request for a single rule, and returns the product.
+
+        :param rule_id: The rule to execute.
+        :param params: A Params instance for the request.
+        :param poll: See self.execution_request.
+        :param poll_delay: See self.execution_request.
+        :param timeout: See self.execution_request.
+        :returns: A list of the requested products, with length match len(subjects).
+        """
+        request = self.execution_request_by_name(
+            rule_id,
+            product,
+            explicit_args_arity,
+            params,
             poll=poll,
             poll_delay=poll_delay,
             timeout=timeout,

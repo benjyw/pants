@@ -23,6 +23,7 @@ from pants.core.util_rules.source_files import SourceFiles, SourceFilesRequest
 from pants.engine.addresses import Address
 from pants.engine.fs import EMPTY_SNAPSHOT, DigestContents
 from pants.engine.internals.scheduler import ExecutionError
+from pants.engine.intrinsics import get_digest_contents
 from pants.engine.target import (
     GeneratedSources,
     GenerateSourcesRequest,
@@ -77,7 +78,8 @@ def assert_adhoc_tool_result(
 ) -> None:
     result = execute_adhoc_tool(rule_runner, address)
     assert result.snapshot.files == tuple(expected_contents)
-    contents = rule_runner.request(DigestContents, [result.snapshot.digest])
+    #contents = rule_runner.request(DigestContents, [result.snapshot.digest])
+    contents = rule_runner.call(get_digest_contents, result.snapshot.digest)
     for fc in contents:
         assert fc.content == expected_contents[fc.path].encode()
 

@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use deepsize::DeepSizeOf;
 use futures::{FutureExt, future};
 use log::trace;
+use rule_graph::RuleId;
 use tokio::time;
 
 use crate::context::{Context, Core};
@@ -89,6 +90,27 @@ impl Scheduler {
         request.roots.push(Root::new(
             params,
             &rule_graph::DependencyKey::new(product),
+            &edges,
+        ));
+        Ok(())
+    }
+
+    pub fn add_root_by_name(
+        &self,
+        request: &mut ExecutionRequest,
+        params: Params,
+        rule_id: RuleId,
+        product: TypeId,
+        explicit_args_arity: u16,
+    ) -> Result<(), String> {
+        let edges = self
+            .core
+            .rule_graph
+            .find_root_edges(params.type_ids(), product)?;
+        println!("AAAAAAAAAAAAAAAAAA {:#?}", edges);
+        request.roots.push(Root::new(
+            params,
+            &rule_graph::DependencyKey::for_known_rule(rule_id, product, explicit_args_arity),
             &edges,
         ));
         Ok(())

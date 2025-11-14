@@ -38,8 +38,7 @@ use pyo3::prelude::{
 };
 use pyo3::sync::MutexExt;
 use pyo3::types::{
-    PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyList, PyListMethods, PyModuleMethods, PyTuple,
-    PyType,
+    PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyList, PyListMethods, PyModuleMethods, PyString, PyStringMethods, PyTuple, PyType
 };
 use pyo3::{Bound, IntoPyObject, Py, PyAny, PyRef, create_exception};
 use regex::Regex;
@@ -142,6 +141,7 @@ fn native_engine(py: Python, m: &Bound<'_, PyModule>) -> PyO3Result<()> {
     m.add_function(wrap_pyfunction!(rule_subgraph_visualize, m)?)?;
 
     m.add_function(wrap_pyfunction!(execution_add_root_select, m)?)?;
+    m.add_function(wrap_pyfunction!(execution_add_root_by_name, m)?)?;
 
     m.add_function(wrap_pyfunction!(session_new_run_id, m)?)?;
     m.add_function(wrap_pyfunction!(session_poll_workunits, m)?)?;
@@ -1259,6 +1259,32 @@ fn execution_add_root_select<'py>(
             .collect::<Result<Vec<_>, _>>()?;
         Params::new(keys)
             .and_then(|params| scheduler.add_root_select(&mut execution_request, params, product))
+            .map_err(PyException::new_err)
+    })
+}
+
+#[pyfunction]
+fn execution_add_root_by_name<'py>(
+    py: Python<'py>,
+    py_scheduler: &Bound<'py, PyScheduler>,
+    py_execution_request: &Bound<'py, PyExecutionRequest>,
+    param_vals: Vec<Py<PyAny>>,
+    rule_id: &Bound<'py, PyString>,
+    product: &Bound<'py, PyType>,
+    explicit_args_arity: u16,
+) -> PyO3Result<()> {
+    let scheduler = &py_scheduler.borrow().0;
+    let execution_request_cell_ref = py_execution_request.borrow();
+    let mut execution_request = execution_request_cell_ref.0.lock_py_attached(py);
+
+    scheduler.core.executor.enter(|| {
+        let product = TypeId::new(product);
+        let keys = param_vals
+            .into_iter()
+            .map(|p| Key::from_value(p.into()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Params::new(keys)
+            .and_then(|params| scheduler.add_root_by_name(&mut execution_request, params, RuleId::new(rule_id.to_str().map_err(|e| e.to_string())?), product, explicit_args_arity))
             .map_err(PyException::new_err)
     })
 }
