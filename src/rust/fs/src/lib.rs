@@ -607,10 +607,64 @@ impl PosixFS {
                     _ => unreachable!("std::fs::FileType was not a symlink, directory, or file"),
                 };
 
-                #[cfg(target_family = "unix")]
+                #[cfg(unix)]
                 let (unix_mode, is_executable) = {
                     let mode = metadata.permissions().mode();
                     (Some(mode), (mode & 0o111) != 0)
+                };
+                #[cfg(windows)]
+                let (unix_mode, is_executable) = {
+                    // Check using file extension
+                    if let Some(pathext) = std::env::var_os("PATHEXT") {
+                        if let Some(extension) = self.extension() {
+                            let extension = extension.to_string_lossy();
+
+                            // Originally taken from:
+                            // https://github.com/nushell/nushell/blob/93e8f6c05e1e1187d5b674d6b633deb839c84899/crates/nu-cli/src/completion/command.rs#L64-L74
+                            return pathext
+                                .to_string_lossy()
+                                .split(';')
+                                // Filter out empty tokens and ';' at the end
+                                .filter(|f| f.len() > 1)
+                                .any(|ext| {
+                                    // Cut off the leading '.' character
+                                    let ext = &ext[1..];
+                                    extension.eq_ignore_ascii_case(ext)
+                                });
+                        }
+                    }
+
+                    // Check using file properties
+                    // This code is only reached if there is no file extension or retrieving PATHEXT fails
+                    let windows_string = self
+                        .as_os_str()
+                        .encode_wide()
+                        .chain(Some(0))
+                        .collect::<Vec<_>>();
+                    let windows_string_ptr = windows_string.as_ptr();
+
+                    let mut binary_type: u32 = 42;
+                    let binary_type_ptr = &mut binary_type as *mut u32;
+
+                    let ret = unsafe { GetBinaryTypeW(windows_string_ptr, binary_type_ptr) };
+                    if binary_type_ptr.is_null() {
+                        return false;
+                    }
+                    if ret != 0 {
+                        let binary_type = unsafe { *binary_type_ptr };
+                        match binary_type {
+                            0   // A 32-bit Windows-based application
+                            | 1 // An MS-DOS-based application
+                            | 2 // A 16-bit Windows-based application
+                            | 3 // A PIF file that executes an MS-DOS-based application
+                            | 4 // A POSIX – based application
+                            | 5 // A 16-bit OS/2-based application
+                            | 6 // A 64-bit Windows-based application
+                            => return true,
+                            _ => (),
+                        }
+                    }
+                    (None, false)
                 };
 
                 Ok(Some(PathMetadata {
