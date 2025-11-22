@@ -25,6 +25,7 @@ pub use crate::glob_matching::{
 use std::cmp::min;
 use std::io::{self, ErrorKind};
 use std::ops::Deref;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -612,15 +613,12 @@ impl PosixFS {
                     let mode = metadata.permissions().mode();
                     (Some(mode), (mode & 0o111) != 0)
                 };
-                #[cfg(windows)]
-                let (unix_mode, is_executable) = {
-                    // Check using file extension
+                #[cfg(windows)]   
+                fn is_win_executable(path: &Path) {
+                    // Check using file extension.
                     if let Some(pathext) = std::env::var_os("PATHEXT") {
-                        if let Some(extension) = self.extension() {
+                        if let Some(extension) = path.extension() {
                             let extension = extension.to_string_lossy();
-
-                            // Originally taken from:
-                            // https://github.com/nushell/nushell/blob/93e8f6c05e1e1187d5b674d6b633deb839c84899/crates/nu-cli/src/completion/command.rs#L64-L74
                             return pathext
                                 .to_string_lossy()
                                 .split(';')
@@ -633,19 +631,15 @@ impl PosixFS {
                                 });
                         }
                     }
-
-                    // Check using file properties
-                    // This code is only reached if there is no file extension or retrieving PATHEXT fails
-                    let windows_string = self
+                    // Check using file properties.
+                    let windows_string = path
                         .as_os_str()
                         .encode_wide()
                         .chain(Some(0))
                         .collect::<Vec<_>>();
                     let windows_string_ptr = windows_string.as_ptr();
-
                     let mut binary_type: u32 = 42;
                     let binary_type_ptr = &mut binary_type as *mut u32;
-
                     let ret = unsafe { GetBinaryTypeW(windows_string_ptr, binary_type_ptr) };
                     if binary_type_ptr.is_null() {
                         return false;
@@ -664,8 +658,10 @@ impl PosixFS {
                             _ => (),
                         }
                     }
-                    (None, false)
-                };
+                    false
+                }
+                #[cfg("windows")]
+                let (unix_mode, is_executable) = (None, is_win_executable(path));
 
                 Ok(Some(PathMetadata {
                     path,
@@ -900,6 +896,7 @@ impl DigestEntry {
 /// unable to either get or sufficiently raise them. Generally the returned error should be treated
 /// as a warning to be rendered rather than as something fatal.
 ///
+#[cfg(unix)]
 pub fn increase_limits() -> Result<String, String> {
     loop {
         let (cur, max) = rlimit::Resource::NOFILE
@@ -929,6 +926,11 @@ pub fn increase_limits() -> Result<String, String> {
             return Ok(format!("File handle limit is: {cur}"));
         };
     }
+}
+
+#[cfg(windows)]
+pub fn increase_limits() -> Result<String, String> {
+    Ok("Windows does not have file handle limits.".to_string())
 }
 
 #[cfg(test)]
