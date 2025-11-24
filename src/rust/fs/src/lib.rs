@@ -13,7 +13,11 @@ mod posixfs;
 #[cfg(test)]
 mod posixfs_tests;
 #[cfg(test)]
+mod tests;
+#[cfg(test)]
 mod testutil;
+#[cfg(windows)]
+mod winfs;
 
 use std::cmp::min;
 use std::fmt;
@@ -564,6 +568,7 @@ impl DigestEntry {
 /// unable to either get or sufficiently raise them. Generally the returned error should be treated
 /// as a warning to be rendered rather than as something fatal.
 ///
+#[cfg(unix)]
 pub fn increase_limits() -> Result<String, String> {
     loop {
         let (cur, max) = rlimit::Resource::NOFILE
@@ -595,5 +600,7 @@ pub fn increase_limits() -> Result<String, String> {
     }
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(windows)]
+pub fn increase_limits() -> Result<String, String> {
+    Ok("Windows does not have file handle limits.".to_string())
+}
