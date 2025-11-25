@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from pathlib import Path
 
+from pants.base.glob_match_error_behavior import GlobMatchErrorBehavior
 from pants.engine.environment import EnvironmentName
 from pants.engine.fs import (
     AddPrefix,
@@ -14,6 +16,7 @@ from pants.engine.fs import (
     DigestContents,
     DigestEntries,
     DigestSubset,
+    GlobExpansionConjunction,
     MergeDigests,
     NativeDownloadFile,
     PathGlobs,
@@ -82,6 +85,22 @@ async def digest_to_snapshot(digest: Digest) -> Snapshot:
 @rule
 async def get_digest_contents(digest: Digest) -> DigestContents:
     return await native_engine.get_digest_contents(digest)
+
+
+async def get_file_contents(path: Path) -> bytes:
+    path_globs = PathGlobs(
+        globs=(str(path),),
+        glob_match_error_behavior=GlobMatchErrorBehavior.error,
+        conjunction=GlobExpansionConjunction.all_match,
+        description_of_origin=str(path),
+    )
+    digest_contents = await get_digest_contents(**implicitly({path_globs: PathGlobs}))
+    if len(digest_contents) != 1:
+        # The glob_match_error_behavior means there will be at least one, but we check
+        # that there is exactly one, in case the user passed a path with wildcards.
+        raise Exception(f"Expected a single match for {path} but found {len(digest_contents)}")
+    file_contents = next(iter(digest_contents))
+    return file_contents.content
 
 
 @rule
