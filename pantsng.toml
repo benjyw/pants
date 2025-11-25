@@ -1,0 +1,6 @@
+[python-project]
+interpreter_version = "@pyproject.toml"
+requirements = ["foo==1.2.3"]
+
+[ruff]
+requirements = ["@pyproject.toml"]

@@ -122,7 +122,6 @@ class PantsDaemonCore:
 
         Runs in a client context (generally in DaemonPantsRunner) so logging is sent to the client.
         """
-
         with self._handle_exceptions():
             build_config = self._options_initializer.build_config(options_bootstrapper, env)
             union_membership = UnionMembership.from_rules(build_config.union_rules)
