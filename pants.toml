@@ -5,6 +5,7 @@ sandboxer = true
 # Enable our custom loose-source plugins.
 pythonpath = ["%(buildroot)s/pants-plugins"]
 backend_packages.add = [
+  "pants.backend_ng.python",
   "pants.backend.build_files.fix.deprecations",
   "pants.backend.build_files.fmt.ruff",
   "pants.backend.python",

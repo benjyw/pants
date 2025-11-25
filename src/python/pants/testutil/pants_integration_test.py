@@ -27,6 +27,11 @@ from pants.util.dirutil import fast_relpath, safe_file_dump, safe_mkdir, safe_op
 from pants.util.osutil import Pid
 from pants.util.strutil import ensure_binary
 
+# pants: infer-dep(/src/python/pants/__main__.py)
+# pants: infer-dep(/BUILD_ROOT)
+# pants: infer-dep(/pants.toml)
+# pants: infer-dep(/src/python/pants/core/register.py)
+
 # NB: If `shell=True`, it's a single `str`.
 Command = Union[str, list[str]]
 
@@ -162,11 +167,15 @@ def run_pants_with_workdir_without_waiting(
 ) -> PantsJoinHandle:
     args = [
         "--no-pantsrc",
+        "--print-stacktrace",
         f"--pants-workdir={workdir}",
     ]
     if set_pants_ignore:
+        # NB: The "Pants NG" python backend sets a `.uv_home` named cache symlink, which we don't
+        #   want a "pants-in-pants" instance to see, as it will fail on attempting to read an
+        #   absolute symlink.
         # FIXME: For some reason, Pants's CI adds the coverage file and it is not ignored by default. Why?
-        args.append("--pants-ignore=+['.coverage.*', '.python-build-standalone']")
+        args.append("--pants-ignore=+['.coverage.*', '.python-build-standalone', '.uv_home']")
 
     pantsd_in_command = "--no-pantsd" in command or "--pantsd" in command
     pantsd_in_config = config and "GLOBAL" in config and "pantsd" in config["GLOBAL"]
