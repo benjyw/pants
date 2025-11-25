@@ -531,6 +531,9 @@ def collect_rules(*namespaces: ModuleType | Mapping[str, Any]) -> Iterable[Rule]
                 rule = getattr(item, "rule", None)
                 if isinstance(rule, TaskRule):
                     for input in rule.parameters.values():
+                        if getattr(input, "_subsystem_ng_", False):
+                            input._initialize_()
+                            yield from input._get_rules_()
                         if getattr(input, "__subsystem__", False):
                             yield from input.rules()
                         if getattr(input, "__subsystem_environment_aware__", False):
