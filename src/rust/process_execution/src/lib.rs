@@ -598,6 +598,14 @@ pub struct Process {
     pub env: BTreeMap<String, String>,
 
     ///
+    /// Names of environment variables from `env` to exclude from the cache key.
+    /// Use with caution! Env vars suitable for ephemerality include things like
+    /// auth tokens and credentials, that may change frequently but should not
+    /// invalidate the cache, as they don't affect the process result.
+    ///
+    pub ephemeral_env: BTreeSet<String>,
+
+    ///
     /// A relative path to a directory existing in the `input_files` digest to execute the process
     /// from. Defaults to the `input_files` root.
     ///
@@ -694,6 +702,7 @@ impl Process {
         Process {
             argv,
             env: BTreeMap::new(),
+            ephemeral_env: BTreeSet::new(),
             working_directory: None,
             input_digests: InputDigests::default(),
             output_files: BTreeSet::new(),

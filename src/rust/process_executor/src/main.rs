@@ -408,6 +408,7 @@ async fn make_request_from_flat_args(
     let process = process_execution::Process {
         argv: args.command.argv.clone(),
         env: collection_from_keyvalues(args.command.env.iter()),
+        ephemeral_env: BTreeSet::new(),
         working_directory,
         input_digests,
         output_files,
@@ -490,6 +491,7 @@ async fn extract_request_from_action_digest(
             })
             .map(|env| (env.name.clone(), env.value.clone()))
             .collect(),
+        ephemeral_env: BTreeSet::new(),
         working_directory,
         input_digests,
         output_files: command

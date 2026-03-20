@@ -76,6 +76,9 @@ impl ExecuteProcess {
         process_config: externs::process::PyProcessExecutionEnvironment,
     ) -> Result<Process, StoreError> {
         let env = externs::getattr_from_str_frozendict(value, "env");
+        let ephemeral_env = externs::getattr::<Vec<String>>(value, "ephemeral_env")?
+            .into_iter()
+            .collect();
 
         let working_directory = externs::getattr_as_optional_string(value, "working_directory")
             .map_err(|e| format!("Failed to get `working_directory` from field: {e}"))?
@@ -163,6 +166,7 @@ impl ExecuteProcess {
         Ok(Process {
             argv: externs::getattr(value, "argv")?,
             env,
+            ephemeral_env,
             working_directory,
             input_digests,
             output_files,

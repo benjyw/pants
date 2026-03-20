@@ -111,6 +111,7 @@ class Process:
     use_nailgun: tuple[str, ...]
     working_directory: str | None
     env: FrozenDict[str, str]
+    ephemeral_env: frozenset[str]
     append_only_caches: FrozenDict[str, str]
     output_files: tuple[str, ...]
     output_directories: tuple[str, ...]
@@ -134,6 +135,7 @@ class Process:
         use_nailgun: Iterable[str] = (),
         working_directory: str | None = None,
         env: Mapping[str, str] | None = None,
+        ephemeral_env: Iterable[str] | None = None,
         append_only_caches: Mapping[str, str] | None = None,
         output_files: Iterable[str] | None = None,
         output_directories: Iterable[str] | None = None,
@@ -187,6 +189,7 @@ class Process:
         object.__setattr__(self, "use_nailgun", tuple(use_nailgun))
         object.__setattr__(self, "working_directory", working_directory)
         object.__setattr__(self, "env", FrozenDict(env or {}))
+        object.__setattr__(self, "ephemeral_env", frozenset(ephemeral_env or ()))
         object.__setattr__(self, "append_only_caches", FrozenDict(append_only_caches or {}))
         object.__setattr__(self, "output_files", tuple(output_files or ()))
         object.__setattr__(self, "output_directories", tuple(output_directories or ()))

@@ -560,8 +560,8 @@ impl process_execution::CommandRunner for CommandRunner {
     }
 }
 
-/// Check the remote Action Cache for a cached result of running the given `command` and the Action
-/// with the given `action_digest`.
+/// Check the remote Action Cache for a cached result of running the Action with the
+/// given `action_digest`.
 ///
 /// This check is necessary because some REAPI servers do not short-circuit the Execute method
 /// by checking the Action Cache (e.g., BuildBarn). Thus, this client must check the cache
