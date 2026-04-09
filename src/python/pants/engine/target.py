@@ -2626,6 +2626,18 @@ class InferDependenciesRequest(Generic[FS], EngineAwareParameter):
 
     field_set: FS
 
+    # Some InferDependenciesRequest subclasses might benefit from handling multiple FieldSets in a
+    # single request. However historically this class only supported a single FieldSet, and almost
+    # all dep inference implementations still assume this, so we preserve the single `field_set`
+    # field above, and the dep graph building code will normally set it.
+    # However, if a subclass sets supports_multiple_field_sets to True, then the dep graph building
+    # code will instead set `field_sets` and the dep inference implementation for that type should
+    # consult that field instead.
+    supports_multiple_field_sets: ClassVar[bool] = False
+
+    field_sets: tuple[FS, ...] = tuple()
+
+
 
 @dataclass(frozen=True)
 class InferredDependencies:

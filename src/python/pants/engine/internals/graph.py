@@ -1678,13 +1678,18 @@ async def resolve_dependencies(
             for inference_request_type in inference_request_types
             if inference_request_type.infer_from.is_applicable(tgt)
         ]
+
+        def create_inference_request(inf_req_type: type[InferDependenciesRequest]) -> InferDependenciesRequest:
+            if inf_req_type.supports_multiple_field_sets:
+                return inf_req_type(field_set=None, field_sets=(inf_req_type.infer_from.create(tgt),))
+            else:
+                return inf_req_type(field_set=inf_req_type.infer_from.create(tgt))
+
         inferred = await concurrently(
             infer_dependencies(
                 **implicitly(
                     {
-                        inference_request_type(
-                            inference_request_type.infer_from.create(tgt)
-                        ): InferDependenciesRequest,
+                        create_inference_request(inference_request_type): InferDependenciesRequest,
                         environment_name: EnvironmentName,
                     },
                 )
