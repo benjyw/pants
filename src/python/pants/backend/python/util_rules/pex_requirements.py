@@ -413,8 +413,9 @@ class ResolvePexConstraintsFile:
 
 # Matches `name=URL` index specs (a pex-compatible form). Only treats the value as named if
 # the LHS is a simple identifier and the RHS starts with `<scheme>://`, so URLs that contain
-# `=` (e.g. inside a query string) are not mis-split.
-_NAMED_INDEX_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_\-]*)=(?=[a-z][a-z0-9+.\-]*://)(.+)$")
+# `=` (e.g. inside a query string) are not mis-split. The scheme charset is case-insensitive
+# per RFC 3986 §3.1, so e.g. `HTTPS://...` is also recognized.
+_NAMED_INDEX_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_\-]*)=(?=[A-Za-z][A-Za-z0-9+.\-]*://)(.+)$")
 
 
 def _split_named_index(spec: str) -> tuple[str | None, str]:

@@ -532,6 +532,15 @@ def test_uv_config_url_with_query_string_not_split():
     assert parsed["index"][0]["default"] is True
 
 
+def test_uv_config_named_index_mixed_case_scheme():
+    # URI schemes are case-insensitive per RFC 3986 §3.1; the `name=URL` parser
+    # must recognize them regardless of case (e.g. `HTTPS://`, `Https://`).
+    for scheme in ("HTTPS", "Https", "HTTP", "git+HTTPS"):
+        parsed = _uv_config(indexes=[f"my-index={scheme}://art.example.com/simple"])
+        assert parsed["index"][0]["url"] == f"{scheme}://art.example.com/simple", scheme
+        assert parsed["index"][0]["name"] == "my-index", scheme
+
+
 def test_uv_config_keyring_provider():
     parsed = _uv_config(keyring_provider="subprocess")
     assert parsed["keyring-provider"] == "subprocess"
