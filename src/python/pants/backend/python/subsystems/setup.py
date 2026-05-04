@@ -324,6 +324,22 @@ class PythonSetup(Subsystem):
         ),
         advanced=True,
     )
+    uv_keyring_provider = StrOption(
+        default=None,
+        help=softwrap(
+            """
+            If set, emit `keyring-provider = "<value>"` into the generated `uv.toml` for
+            authenticating to private indexes. Typical value is `"subprocess"`, which has
+            uv shell out to the system `keyring` binary (works with backends like
+            `keyrings.google-artifactregistry-auth` or `keyring.codeartifact`).
+
+            Only applies when `[python].resolver = "uv"`.
+
+            See https://docs.astral.sh/uv/reference/settings/#keyring-provider.
+            """
+        ),
+        advanced=True,
+    )
     _resolves_to_interpreter_constraints = DictOption[list[str]](
         help=softwrap(
             """

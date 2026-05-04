@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.resources
 import json
 import logging
+import re
 import tomllib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -410,6 +411,18 @@ class ResolvePexConstraintsFile:
     constraints: FrozenOrderedSet[PipRequirement]
 
 
+# Matches `name=URL` index specs (a pex-compatible form). Only treats the value as named if
+# the LHS is a simple identifier and the RHS starts with `<scheme>://`, so URLs that contain
+# `=` (e.g. inside a query string) are not mis-split.
+_NAMED_INDEX_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_\-]*)=(?=[a-z][a-z0-9+.\-]*://)(.+)$")
+
+
+def _split_named_index(spec: str) -> tuple[str | None, str]:
+    """Parse `name=URL` form; fall back to `(None, URL)` if no name prefix."""
+    m = _NAMED_INDEX_RE.match(spec)
+    return (m.group(1), m.group(2)) if m else (None, spec)
+
+
 @dataclass(frozen=True)
 class ResolveConfig:
     """Configuration from `[python]` that impacts how the resolve is created."""
@@ -427,6 +440,7 @@ class ResolveConfig:
     lock_style: str
     complete_platforms: tuple[str, ...]
     uploaded_prior_to: str | None
+    keyring_provider: str | None = None
 
     def pex_args(self) -> Iterator[str]:
         """Arguments for Pex for indexes/--find-links, manylinux, and path mappings.
@@ -513,11 +527,24 @@ class ResolveConfig:
         if self.uploaded_prior_to:
             config_lines.append(f'exclude-newer = "{self.uploaded_prior_to}"')
 
-        for i, index_url in enumerate(self.indexes):
-            # The first index gets `default = true`, replacing uv's built-in PyPI default.
-            # Subsequent indexes are additional sources.
+        # `keyring-provider` is a top-level key, so it must come before any `[[index]]`
+        # array-of-tables block to remain a top-level key in TOML.
+        if self.keyring_provider:
+            config_lines.append(f'keyring-provider = "{self.keyring_provider}"')
+
+        for i, raw in enumerate(self.indexes):
+            # Indexes accept a pex-compatible `name=URL` form, which we use to give the [[index]]
+            # a stable name in the generated uv.toml. uv's per-index credential env vars
+            # (`UV_INDEX_<NAME>_USERNAME`/`_PASSWORD`) require such a name to bind to.
+            name, index_url = _split_named_index(raw)
             block = f'[[index]]\nurl = "{index_url}"\n'
-            block += "default = true\n" if i == 0 else f'name = "extra-{i}"\n'
+            if name is not None:
+                block += f'name = "{name}"\n'
+                if i == 0:
+                    block += "default = true\n"
+            else:
+                # The first unnamed index gets `default = true`, replacing uv's built-in PyPI default.
+                block += "default = true\n" if i == 0 else f'name = "extra-{i}"\n'
             config_lines.append(block)
 
         return "\n".join(config_lines) + "\n" if config_lines else ""
@@ -580,6 +607,7 @@ async def determine_resolve_config(
             lock_style="universal",  # Default to universal when no resolve name
             complete_platforms=(),  # No complete platforms by default
             uploaded_prior_to=None,
+            keyring_provider=python_setup.uv_keyring_provider,
         )
 
     no_binary = python_setup.resolves_to_no_binary().get(request.resolve_name) or []
@@ -646,6 +674,7 @@ async def determine_resolve_config(
         lock_style=lock_style,
         complete_platforms=complete_platforms,
         uploaded_prior_to=uploaded_prior_to,
+        keyring_provider=python_setup.uv_keyring_provider,
     )
 
 
