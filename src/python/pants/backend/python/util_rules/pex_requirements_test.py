@@ -460,6 +460,7 @@ def _uv_config(
     only_binary=None,
     no_binary=None,
     uploaded_prior_to=None,
+    keyring_provider=None,
 ):
     cfg = ResolveConfig(
         indexes=indexes if indexes is not None else ["https://pypi.org/simple"],
@@ -475,6 +476,7 @@ def _uv_config(
         lock_style="universal",
         complete_platforms=(),
         uploaded_prior_to=uploaded_prior_to,
+        keyring_provider=keyring_provider,
     )
     return tomllib.loads(cfg.uv_config(extra_find_links=extra_find_links))
 
@@ -498,6 +500,54 @@ def test_uv_config_indexes():
     assert indexes[0]["default"] is True
     assert indexes[1]["url"] == "https://secondary.example.com/simple"
     assert indexes[1].get("name") == "extra-1"
+
+
+def test_uv_config_named_indexes():
+    # The pex-compatible `name=URL` form lets users pick a stable index name,
+    # which is a prerequisite for binding `UV_INDEX_<NAME>_USERNAME`/`_PASSWORD`.
+    parsed = _uv_config(indexes=["laam-sdk=https://art.example.com/simple"])
+    assert len(parsed["index"]) == 1
+    assert parsed["index"][0]["url"] == "https://art.example.com/simple"
+    assert parsed["index"][0]["name"] == "laam-sdk"
+    assert parsed["index"][0]["default"] is True
+
+    # Mixed named/unnamed: only the first index ever gets `default = true`.
+    parsed = _uv_config(
+        indexes=["my-index=https://a.example.com/simple", "https://b.example.com/simple"]
+    )
+    indexes = parsed["index"]
+    assert indexes[0]["name"] == "my-index"
+    assert indexes[0]["default"] is True
+    assert indexes[1]["url"] == "https://b.example.com/simple"
+    assert indexes[1].get("name") == "extra-1"
+    assert "default" not in indexes[1]
+
+
+def test_uv_config_url_with_query_string_not_split():
+    # An unprefixed URL whose query string contains `=` must NOT be parsed as `name=URL`.
+    url = "https://example.com/simple?token=abc123"
+    parsed = _uv_config(indexes=[url])
+    assert parsed["index"][0]["url"] == url
+    assert "name" not in parsed["index"][0]
+    assert parsed["index"][0]["default"] is True
+
+
+def test_uv_config_named_index_mixed_case_scheme():
+    # URI schemes are case-insensitive per RFC 3986 §3.1; the `name=URL` parser
+    # must recognize them regardless of case (e.g. `HTTPS://`, `Https://`).
+    for scheme in ("HTTPS", "Https", "HTTP", "git+HTTPS"):
+        parsed = _uv_config(indexes=[f"my-index={scheme}://art.example.com/simple"])
+        assert parsed["index"][0]["url"] == f"{scheme}://art.example.com/simple", scheme
+        assert parsed["index"][0]["name"] == "my-index", scheme
+
+
+def test_uv_config_keyring_provider():
+    parsed = _uv_config(keyring_provider="subprocess")
+    assert parsed["keyring-provider"] == "subprocess"
+
+    # Default (None) does not emit the key.
+    parsed = _uv_config()
+    assert "keyring-provider" not in parsed
 
 
 def test_uv_config_find_links():

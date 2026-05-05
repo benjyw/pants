@@ -29,8 +29,10 @@ from pants.backend.python.util_rules.pex_requirements import (
 )
 from pants.base.build_root import BuildRoot
 from pants.core.util_rules import system_binaries
+from pants.core.util_rules.env_vars import environment_vars_subset
 from pants.core.util_rules.subprocess_environment import SubprocessEnvironmentVars
 from pants.core.util_rules.system_binaries import BashBinary, RealpathBinary
+from pants.engine.env_vars import EnvironmentVarsRequest
 from pants.engine.fs import (
     CreateDigest,
     FileContent,
@@ -96,12 +98,18 @@ async def get_uv_environment(
 
     if "PATH" in subprocess_env_dict:
         path = os.pathsep.join([path, subprocess_env_dict.pop("PATH")])
+
+    extra_env = await environment_vars_subset(
+        EnvironmentVarsRequest(uv_env_aware.extra_env_vars), **implicitly()
+    )
+
     return UvEnvironment(
         env=FrozenDict(
             {
                 "PATH": path,
                 **subprocess_env_dict,
                 **python_native_code.subprocess_env_vars,
+                **extra_env,
             }
         )
     )
