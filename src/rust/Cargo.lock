@@ -1365,6 +1365,7 @@ dependencies = [
  "bytes",
  "deepsize",
  "dirs",
+ "dunce",
  "env_logger",
  "futures",
  "glob",

@@ -51,8 +51,11 @@ const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
 ///   on POSIX: we don't currently expect to share digests across platforms.
 /// - A link target that is rooted (`\foo`) or has a drive or UNC prefix (`C:foo`, `C:\foo`,
 ///   `\\server\share`) is treated as absolute.
-/// - The root is canonicalized, which on Windows produces a verbatim (`\\?\C:\...`) path. All paths
-///   produced by `file_path` are under it.
+/// - The root is canonicalized with `dunce`, which (unlike `std::fs::canonicalize`) produces an
+///   ordinary path such as `C:\repo` rather than a verbatim one such as `\\?\C:\repo`, since many
+///   tools mishandle verbatim paths. It keeps the verbatim form only where the ordinary one would
+///   mean something different, such as for paths longer than `MAX_PATH` or containing reserved
+///   names like `CON`.
 ///
 #[derive(Clone)]
 pub struct WinFS {
@@ -79,8 +82,7 @@ impl WinFS {
         symlink_behavior: SymlinkBehavior,
     ) -> Result<Self, String> {
         let root: &Path = root.as_ref();
-        let canonical_root = root
-            .canonicalize()
+        let canonical_root = dunce::canonicalize(root)
             .and_then(|canonical| {
                 canonical.metadata().and_then(|metadata| {
                     if metadata.is_dir() {
