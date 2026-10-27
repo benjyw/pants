@@ -10,7 +10,7 @@ mod glob_matching;
 mod glob_matching_tests;
 #[cfg(unix)]
 mod posixfs;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod posixfs_tests;
 #[cfg(test)]
 mod tests;
@@ -18,6 +18,8 @@ mod tests;
 mod testutil;
 #[cfg(windows)]
 mod winfs;
+#[cfg(all(test, windows))]
+mod winfs_tests;
 
 use std::cmp::min;
 use std::fmt;
@@ -41,7 +43,10 @@ pub use crate::glob_matching::{
 };
 #[cfg(unix)]
 use crate::posixfs::PosixFS;
+#[cfg(windows)]
+use crate::winfs::WinFS;
 
+#[cfg(unix)]
 const TARGET_NOFILE_LIMIT: u64 = 10000;
 
 const XDG_CACHE_HOME: &str = "XDG_CACHE_HOME";
@@ -387,6 +392,8 @@ impl fmt::Display for PathGlobs {
 
 #[cfg(unix)]
 pub type FS = PosixFS;
+#[cfg(windows)]
+pub type FS = WinFS;
 
 #[async_trait]
 impl Vfs<String> for DigestTrie {
