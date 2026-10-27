@@ -75,12 +75,18 @@ async fn file_path() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = PathBuf::from("marmosets");
     let fs = new_fs(dir.path());
-    let expected_path = std::fs::canonicalize(dir.path()).unwrap().join(&path);
+    // NB: On unix, `dunce::canonicalize` is just `std::fs::canonicalize`.
+    let expected_path = dunce::canonicalize(dir.path()).unwrap().join(&path);
     let actual_path = fs.file_path(&File {
         path: path,
         is_executable: false,
     });
     assert_eq!(actual_path, expected_path);
+    #[cfg(windows)]
+    assert!(
+        !actual_path.to_str().unwrap().starts_with(r"\\?\"),
+        "{actual_path:?}"
+    );
 }
 
 #[tokio::test]
