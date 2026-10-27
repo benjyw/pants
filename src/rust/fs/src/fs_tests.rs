@@ -1,12 +1,16 @@
-// Copyright 2025 Pants project contributors (see CONTRIBUTORS.md).
+// Copyright 2022 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+// Tests for `FS`, which is `FS` on unix and `WinFS` on Windows. Where the platforms
+// legitimately differ, the expected values come from the helpers at the bottom of this file.
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use hashing::EMPTY_DIGEST;
 
+use crate::FS;
 use crate::testutil::make_file;
-use crate::winfs::WinFS;
 use crate::{
     DigestTrie, Dir, DirectoryListing, File, GitignoreStyleExcludes, GlobExpansionConjunction,
     GlobMatching, Link, PathGlobs, PathMetadataKind, PathStat, Stat, StrictGlobMatching,
@@ -21,18 +25,17 @@ async fn is_executable_false() {
 }
 
 #[tokio::test]
-async fn is_executable_never_true() {
-    // Windows has no executable bit, so the mode passed to `make_file` is ignored.
+async fn is_executable_true() {
     let dir = tempfile::TempDir::new().unwrap();
     make_file(&dir.path().join("photograph_marmosets"), &[], 0o700);
-    assert_only_file_is_executable(dir.path(), false).await;
+    assert_only_file_is_executable(dir.path(), EXECUTABLE).await;
 }
 
 #[tokio::test]
 async fn file_path() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = PathBuf::from("marmosets");
-    let fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
     let expected_path = std::fs::canonicalize(dir.path()).unwrap().join(&path);
     let actual_path = fs.file_path(&File {
         path: path,
@@ -42,13 +45,28 @@ async fn file_path() {
 }
 
 #[tokio::test]
+async fn stat_executable_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let fs = new_fs(dir.path());
+    let path = PathBuf::from("photograph_marmosets");
+    make_file(&dir.path().join(&path), &[], 0o700);
+    assert_eq!(
+        fs.stat_sync(&path).unwrap().unwrap(),
+        super::Stat::File(File {
+            path: path,
+            is_executable: EXECUTABLE,
+        })
+    )
+}
+
+#[tokio::test]
 async fn stat_nonexecutable_file() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
     let path = PathBuf::from("marmosets");
     make_file(&dir.path().join(&path), &[], 0o600);
     assert_eq!(
-        win_fs.stat_sync(&path).unwrap().unwrap(),
+        fs.stat_sync(&path).unwrap().unwrap(),
         super::Stat::File(File {
             path: path,
             is_executable: false,
@@ -59,11 +77,11 @@ async fn stat_nonexecutable_file() {
 #[tokio::test]
 async fn stat_dir() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
     let path = PathBuf::from("enclosure");
     std::fs::create_dir(dir.path().join(&path)).unwrap();
     assert_eq!(
-        win_fs.stat_sync(&path).unwrap().unwrap(),
+        fs.stat_sync(&path).unwrap().unwrap(),
         super::Stat::Dir(Dir(path))
     )
 }
@@ -71,14 +89,14 @@ async fn stat_dir() {
 #[tokio::test]
 async fn stat_symlink() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
     let path = PathBuf::from("marmosets");
     make_file(&dir.path().join(&path), &[], 0o600);
 
     let link_path = PathBuf::from("remarkably_similar_marmoset");
     symlink_file(dir.path().join(path.clone()), dir.path().join(&link_path));
     assert_eq!(
-        win_fs.stat_sync(&link_path).unwrap().unwrap(),
+        fs.stat_sync(&link_path).unwrap().unwrap(),
         super::Stat::Link(Link {
             path: link_path,
             target: dir.path().join(path)
@@ -89,7 +107,7 @@ async fn stat_symlink() {
 #[tokio::test]
 async fn stat_symlink_oblivious() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs_symlink_oblivious(dir.path());
+    let fs = new_fs_symlink_oblivious(dir.path());
     let path = PathBuf::from("marmosets");
     make_file(&dir.path().join(&path), &[], 0o600);
 
@@ -97,7 +115,7 @@ async fn stat_symlink_oblivious() {
     symlink_file(dir.path().join(path), dir.path().join(&link_path));
     // Symlink oblivious stat will give us the destination type.
     assert_eq!(
-        win_fs.stat_sync(&link_path).unwrap().unwrap(),
+        fs.stat_sync(&link_path).unwrap().unwrap(),
         super::Stat::File(File {
             path: link_path,
             is_executable: false,
@@ -105,21 +123,28 @@ async fn stat_symlink_oblivious() {
     )
 }
 
+// There is no Windows equivalent of a device file inside a directory.
+#[cfg(unix)]
+#[tokio::test]
+async fn stat_other() {
+    assert_eq!(new_fs("/dev").stat_sync(Path::new("null")).unwrap(), None,);
+}
+
 #[tokio::test]
 async fn stat_missing() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
-    assert_eq!(win_fs.stat_sync(Path::new("no_marmosets")).unwrap(), None,);
+    let fs = new_fs(dir.path());
+    assert_eq!(fs.stat_sync(Path::new("no_marmosets")).unwrap(), None,);
 }
 
 #[tokio::test]
 async fn scandir_empty() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
     let path = PathBuf::from("empty_enclosure");
     std::fs::create_dir(dir.path().join(&path)).unwrap();
     assert_eq!(
-        win_fs.scandir(Dir(path)).await.unwrap(),
+        fs.scandir(Dir(path)).await.unwrap(),
         DirectoryListing(vec![])
     );
 }
@@ -155,10 +180,7 @@ async fn scandir() {
 
     // Symlink aware.
     assert_eq!(
-        new_winfs(dir.path())
-            .scandir(Dir(path.clone()))
-            .await
-            .unwrap(),
+        new_fs(dir.path()).scandir(Dir(path.clone())).await.unwrap(),
         DirectoryListing(vec![
             Stat::File(File {
                 path: a_marmoset.clone(),
@@ -166,7 +188,7 @@ async fn scandir() {
             }),
             Stat::File(File {
                 path: feed.clone(),
-                is_executable: false,
+                is_executable: EXECUTABLE,
             }),
             Stat::Dir(Dir(hammock.clone())),
             Stat::Link(Link {
@@ -182,7 +204,7 @@ async fn scandir() {
 
     // Symlink oblivious.
     assert_eq!(
-        new_winfs_symlink_oblivious(dir.path())
+        new_fs_symlink_oblivious(dir.path())
             .scandir(Dir(path))
             .await
             .unwrap(),
@@ -193,7 +215,7 @@ async fn scandir() {
             }),
             Stat::File(File {
                 path: feed,
-                is_executable: false,
+                is_executable: EXECUTABLE,
             }),
             Stat::Dir(Dir(hammock)),
             Stat::File(File {
@@ -211,9 +233,8 @@ async fn scandir() {
 #[tokio::test]
 async fn scandir_missing() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
-    win_fs
-        .scandir(Dir(PathBuf::from("no_marmosets_here")))
+    let fs = new_fs(dir.path());
+    fs.scandir(Dir(PathBuf::from("no_marmosets_here")))
         .await
         .expect_err("Want error");
 }
@@ -236,15 +257,14 @@ async fn stats_for_paths() {
     make_file(&root_path.join("regular_file"), &[], 0o600);
     std::fs::create_dir(root_path.join("dir")).unwrap();
     symlink_file("executable_file", root_path.join("symlink"));
-    // NB: Windows link targets use `\\`, but WinFS reports them with `/`.
     symlink_file(
-        "..\\symlink",
+        "../symlink",
         root_path.join("dir").join("recursive_symlink"),
     );
     symlink_dir("dir", root_path.join("dir_symlink"));
     symlink_file("doesnotexist", root_path.join("symlink_to_nothing"));
 
-    let win_fs = Arc::new(new_winfs(root_path));
+    let fs = Arc::new(new_fs(root_path));
     let path_stats = vec![
         PathBuf::from("executable_file"),
         PathBuf::from("regular_file"),
@@ -256,12 +276,12 @@ async fn stats_for_paths() {
         PathBuf::from("doesnotexist"),
     ]
     .into_iter()
-    .map(|p| win_fs.stat_sync(&p).unwrap())
+    .map(|p| fs.stat_sync(&p).unwrap())
     .collect::<Vec<_>>();
     let v: Vec<Option<Stat>> = vec![
         Some(Stat::File(File {
             path: PathBuf::from("executable_file"),
-            is_executable: false,
+            is_executable: EXECUTABLE,
         })),
         Some(Stat::File(File {
             path: PathBuf::from("regular_file"),
@@ -338,42 +358,60 @@ async fn memfs_expand_basic() {
 }
 
 #[tokio::test]
-async fn read_link_normalizes_separators() {
+async fn read_link() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::create_dir_all(dir.path().join("a").join("b")).unwrap();
     make_file(&dir.path().join("a").join("b").join("marmoset"), &[], 0o600);
-    symlink_file("b\\marmoset", dir.path().join("a").join("link"));
+    // On Windows, `symlink_file` writes the target with `\\`, and FS reports it with `/`.
+    symlink_file("b/marmoset", dir.path().join("a").join("link"));
 
-    let win_fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
     let link = Link {
         path: PathBuf::from("a").join("link"),
         target: PathBuf::from("b/marmoset"),
     };
     assert_eq!(
-        win_fs.stat_sync(&link.path).unwrap().unwrap(),
+        fs.stat_sync(&link.path).unwrap().unwrap(),
         Stat::Link(Link {
             path: PathBuf::from("link"),
             target: PathBuf::from("b/marmoset"),
         })
     );
     assert_eq!(
-        win_fs.read_link(&link).await.unwrap(),
+        fs.read_link(&link).await.unwrap(),
         PathBuf::from("a").join("b/marmoset")
     );
 }
 
 #[tokio::test]
+async fn read_link_rejects_absolute_target() {
+    let dir = tempfile::TempDir::new().unwrap();
+    make_file(&dir.path().join("marmoset"), &[], 0o600);
+    symlink_file(dir.path().join("marmoset"), dir.path().join("link"));
+    let fs = new_fs(dir.path());
+    let err = fs
+        .read_link(&Link {
+            path: PathBuf::from("link"),
+            target: dir.path().join("marmoset"),
+        })
+        .await
+        .expect_err("Want error");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{err}");
+}
+
+// Targets that are not `Path::is_absolute` on Windows, but are not relative to the link either.
+#[cfg(windows)]
+#[tokio::test]
 async fn read_link_rejects_rooted_and_prefixed_targets() {
     let dir = tempfile::TempDir::new().unwrap();
-    let win_fs = new_winfs(dir.path());
-    // Neither of these is `Path::is_absolute` on Windows, but neither is relative to the link.
+    let fs = new_fs(dir.path());
     for (name, target) in [("rooted", "\\marmosets"), ("drive_relative", "C:marmosets")] {
         symlink_file(target, dir.path().join(name));
         let link = Link {
             path: PathBuf::from(name),
             target: PathBuf::from(target),
         };
-        let err = win_fs.read_link(&link).await.expect_err("Want error");
+        let err = fs.read_link(&link).await.expect_err("Want error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{name}: {err}");
     }
 }
@@ -383,19 +421,22 @@ async fn path_metadata() {
     let dir = tempfile::TempDir::new().unwrap();
     make_file(&dir.path().join("marmoset"), b"marmoset", 0o700);
     symlink_file("marmoset", dir.path().join("link"));
-    let win_fs = new_winfs(dir.path());
+    let fs = new_fs(dir.path());
 
-    let file = win_fs
+    let file = fs
         .path_metadata(PathBuf::from("marmoset"), false)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(file.kind, PathMetadataKind::File);
     assert_eq!(file.length, 8);
-    assert!(!file.is_executable);
-    assert_eq!(file.unix_mode, None);
+    assert_eq!(file.is_executable, EXECUTABLE);
+    assert_eq!(
+        file.unix_mode.map(|mode| mode & 0o777),
+        if cfg!(unix) { Some(0o700) } else { None }
+    );
 
-    let link = win_fs
+    let link = fs
         .path_metadata(PathBuf::from("link"), false)
         .await
         .unwrap()
@@ -403,17 +444,16 @@ async fn path_metadata() {
     assert_eq!(link.kind, PathMetadataKind::Symlink);
     assert_eq!(link.symlink_target, Some(PathBuf::from("marmoset")));
 
-    let followed = win_fs
+    let followed = fs
         .path_metadata(PathBuf::from("link"), true)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(followed.kind, PathMetadataKind::File);
 
-    for missing in ["no_marmosets", "marmoset/under_a_file", "illegal:name"] {
+    for missing in ["no_marmosets", "marmoset/under_a_file"] {
         assert_eq!(
-            win_fs
-                .path_metadata(PathBuf::from(missing), false)
+            fs.path_metadata(PathBuf::from(missing), false)
                 .await
                 .unwrap(),
             None,
@@ -422,8 +462,22 @@ async fn path_metadata() {
     }
 }
 
+// `:` is legal in a POSIX filename, but not in a Windows one.
+#[cfg(windows)]
+#[tokio::test]
+async fn path_metadata_illegal_filename() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let fs = new_fs(dir.path());
+    assert_eq!(
+        fs.path_metadata(PathBuf::from("illegal:name"), false)
+            .await
+            .unwrap(),
+        None
+    );
+}
+
 async fn assert_only_file_is_executable(path: &Path, want_is_executable: bool) {
-    let fs = new_winfs(path);
+    let fs = new_fs(path);
     let stats = fs.scandir(Dir(PathBuf::from("."))).await.unwrap();
     assert_eq!(stats.0.len(), 1);
     match stats.0.first().unwrap() {
@@ -434,8 +488,8 @@ async fn assert_only_file_is_executable(path: &Path, want_is_executable: bool) {
     }
 }
 
-fn new_winfs<P: AsRef<Path>>(dir: P) -> WinFS {
-    WinFS::new(
+fn new_fs<P: AsRef<Path>>(dir: P) -> FS {
+    FS::new(
         dir.as_ref(),
         GitignoreStyleExcludes::empty(),
         task_executor::Executor::new(),
@@ -443,8 +497,8 @@ fn new_winfs<P: AsRef<Path>>(dir: P) -> WinFS {
     .unwrap()
 }
 
-fn new_winfs_symlink_oblivious<P: AsRef<Path>>(dir: P) -> WinFS {
-    WinFS::new_with_symlink_behavior(
+fn new_fs_symlink_oblivious<P: AsRef<Path>>(dir: P) -> FS {
+    FS::new_with_symlink_behavior(
         dir.as_ref(),
         GitignoreStyleExcludes::empty(),
         task_executor::Executor::new(),
@@ -453,24 +507,45 @@ fn new_winfs_symlink_oblivious<P: AsRef<Path>>(dir: P) -> WinFS {
     .unwrap()
 }
 
-// NB: Creating symlinks on Windows requires either Developer Mode or the SeCreateSymbolicLink
-// privilege.
+/// Whether a file created with an executable mode is reported as executable. Windows has no
+/// executable bit, so files are never executable there.
+const EXECUTABLE: bool = cfg!(unix);
+
+#[cfg(unix)]
 fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
-    std::os::windows::fs::symlink_file(target.as_ref(), link.as_ref()).unwrap_or_else(|e| {
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+#[cfg(unix)]
+fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+// NB: Creating symlinks on Windows requires either Developer Mode or the SeCreateSymbolicLink
+// privilege. Relative targets are written with `\\`, as `git` does when it checks out a symlink.
+#[cfg(windows)]
+fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
+    let target = windows_link_target(target.as_ref());
+    std::os::windows::fs::symlink_file(&target, link.as_ref()).unwrap_or_else(|e| {
         panic!(
-            "Failed to create symlink {:?} -> {:?} (is Developer Mode enabled?): {e}",
-            link.as_ref(),
-            target.as_ref()
+            "Failed to create symlink {:?} -> {target:?}: {e}",
+            link.as_ref()
         )
     });
 }
 
+#[cfg(windows)]
 fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
-    std::os::windows::fs::symlink_dir(target.as_ref(), link.as_ref()).unwrap_or_else(|e| {
+    let target = windows_link_target(target.as_ref());
+    std::os::windows::fs::symlink_dir(&target, link.as_ref()).unwrap_or_else(|e| {
         panic!(
-            "Failed to create symlink {:?} -> {:?} (is Developer Mode enabled?): {e}",
-            link.as_ref(),
-            target.as_ref()
+            "Failed to create symlink {:?} -> {target:?}: {e}",
+            link.as_ref()
         )
     });
+}
+
+#[cfg(windows)]
+fn windows_link_target(target: &Path) -> PathBuf {
+    PathBuf::from(target.to_str().unwrap().replace('/', "\\"))
 }
