@@ -51,6 +51,9 @@ const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
 ///   on POSIX: we don't currently expect to share digests across platforms.
 /// - A link target that is rooted (`\foo`) or has a drive or UNC prefix (`C:foo`, `C:\foo`,
 ///   `\\server\share`) is treated as absolute.
+/// - Windows filesystems are case-insensitive, but paths are still matched case-sensitively, as
+///   they are on (also usually case-insensitive) macOS: a glob must match the on-disk case, and
+///   `Stat`s report names exactly as they are stored.
 /// - The root is canonicalized with `dunce`, which (unlike `std::fs::canonicalize`) produces an
 ///   ordinary path such as `C:\repo` rather than a verbatim one such as `\\?\C:\repo`, since many
 ///   tools mishandle verbatim paths. It keeps the verbatim form only where the ordinary one would
