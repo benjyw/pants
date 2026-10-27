@@ -19,7 +19,9 @@ mod testutil;
 #[cfg(windows)]
 mod winfs;
 
+use std::borrow::Cow;
 use std::cmp::min;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
@@ -84,8 +86,12 @@ impl RelativePath {
         RelativePath(PathBuf::new())
     }
 
+    ///
+    /// Normalizes `path`, which may use either `/` or (on Windows) `\` as its separator, into a
+    /// relative path that always uses `/`. See `path_to_slash`.
+    ///
     pub fn new<P: AsRef<Path>>(path: P) -> Result<RelativePath, String> {
-        let mut relative_path = PathBuf::new();
+        let mut components = Vec::new();
         let candidate = path.as_ref();
         for component in candidate.components() {
             match component {
@@ -97,16 +103,18 @@ impl RelativePath {
                 }
                 Component::CurDir => (),
                 Component::ParentDir => {
-                    if !relative_path.pop() {
+                    if components.pop().is_none() {
                         return Err(format!(
                             "Relative paths that escape the root are not allowed: {candidate:?}"
                         ));
                     }
                 }
-                Component::Normal(path) => relative_path.push(path),
+                Component::Normal(path) => components.push(path),
             }
         }
-        Ok(RelativePath(relative_path))
+        Ok(RelativePath(PathBuf::from(
+            components.join(OsStr::new("/")),
+        )))
     }
 
     pub fn to_str(&self) -> Option<&str> {
@@ -114,7 +122,50 @@ impl RelativePath {
     }
 
     pub fn join(&self, other: Self) -> RelativePath {
-        RelativePath(self.0.join(other))
+        if self.0.as_os_str().is_empty() {
+            return other;
+        }
+        if other.0.as_os_str().is_empty() {
+            return self.clone();
+        }
+        let mut joined = OsString::from(self.0.as_os_str());
+        joined.push("/");
+        joined.push(other.0.as_os_str());
+        RelativePath(PathBuf::from(joined))
+    }
+}
+
+///
+/// Converts `path` to a string that uses `/` as its separator on every platform, as paths inside
+/// the engine and in Python do. Returns None if `path` is not valid UTF-8.
+///
+/// On Windows, `PathBuf::push` and `Path::join` separate components with `\`, so any path built
+/// that way needs converting before it leaves the engine. `\` can never be part of a Windows file
+/// name, so it can always be replaced.
+///
+pub fn path_to_slash(path: &Path) -> Option<Cow<'_, str>> {
+    let path = path.to_str()?;
+    if cfg!(windows) && path.contains('\\') {
+        Some(Cow::Owned(path.replace('\\', "/")))
+    } else {
+        Some(Cow::Borrowed(path))
+    }
+}
+
+///
+/// Like `path_to_slash`, but replaces any invalid UTF-8 with U+FFFD.
+///
+pub fn path_to_slash_lossy(path: &Path) -> Cow<'_, str> {
+    match path_to_slash(path) {
+        Some(path) => path,
+        None => {
+            let path = path.to_string_lossy();
+            if cfg!(windows) {
+                Cow::Owned(path.replace('\\', "/"))
+            } else {
+                Cow::Owned(path.into_owned())
+            }
+        }
     }
 }
 

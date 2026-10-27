@@ -62,8 +62,8 @@ impl Snapshot {
     }
 
     pub fn store_path(py: Python, item: &Path) -> Result<Value, String> {
-        if let Some(p) = item.as_os_str().to_str() {
-            Ok(externs::store_utf8(py, p))
+        if let Some(p) = fs::path_to_slash(item) {
+            Ok(externs::store_utf8(py, &p))
         } else {
             Err(format!("Could not decode path `{item:?}` as UTF8."))
         }

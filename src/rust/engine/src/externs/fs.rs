@@ -19,7 +19,7 @@ use pyo3::types::{PyIterator, PyString, PyTuple, PyType};
 
 use fs::{
     DirectoryDigest, EMPTY_DIRECTORY_DIGEST, FilespecMatcher, GlobExpansionConjunction, PathGlobs,
-    PathMetadata, StrictGlobMatching,
+    PathMetadata, StrictGlobMatching, path_to_slash_lossy,
 };
 use hashing::{Digest, EMPTY_DIGEST, Fingerprint};
 use store::Snapshot;
@@ -192,13 +192,13 @@ impl PySnapshot {
             self.0
                 .directories()
                 .into_iter()
-                .map(|d| d.display().to_string())
+                .map(|d| path_to_slash_lossy(&d).into_owned())
                 .collect::<Vec<_>>()
                 .join(","),
             self.0
                 .files()
                 .into_iter()
-                .map(|d| d.display().to_string())
+                .map(|d| path_to_slash_lossy(&d).into_owned())
                 .collect::<Vec<_>>()
                 .join(","),
         ))
@@ -225,7 +225,7 @@ impl PySnapshot {
             py,
             files
                 .into_iter()
-                .map(|path| PyString::new(py, &path.to_string_lossy()))
+                .map(|path| PyString::new(py, &path_to_slash_lossy(&path)))
                 .collect::<Vec<_>>(),
         )
     }
@@ -236,7 +236,7 @@ impl PySnapshot {
         PyTuple::new(
             py,
             dirs.into_iter()
-                .map(|path| PyString::new(py, &path.to_string_lossy()))
+                .map(|path| PyString::new(py, &path_to_slash_lossy(&path)))
                 .collect::<Vec<_>>(),
         )
     }
@@ -254,7 +254,7 @@ impl PySnapshot {
             PyTuple::new(
                 py,
                 x.iter()
-                    .map(|path| PyString::new(py, &path.to_string_lossy()))
+                    .map(|path| PyString::new(py, &path_to_slash_lossy(path)))
                     .collect::<Vec<_>>(),
             )
         };
