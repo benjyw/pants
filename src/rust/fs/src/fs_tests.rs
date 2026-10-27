@@ -27,8 +27,47 @@ async fn is_executable_false() {
 #[tokio::test]
 async fn is_executable_true() {
     let dir = tempfile::TempDir::new().unwrap();
-    make_file(&dir.path().join("photograph_marmosets"), &[], 0o700);
-    assert_only_file_is_executable(dir.path(), EXECUTABLE).await;
+    make_file(&dir.path().join("photograph_marmosets.exe"), &[], 0o700);
+    assert_only_file_is_executable(dir.path(), true).await;
+}
+
+// On unix only the mode matters, not the extension.
+#[cfg(unix)]
+#[tokio::test]
+async fn is_executable_ignores_extension() {
+    let dir = tempfile::TempDir::new().unwrap();
+    make_file(&dir.path().join("marmosets.exe"), &[], 0o600);
+    assert_only_file_is_executable(dir.path(), false).await;
+}
+
+// On Windows only the extension matters, not the mode, and the extension is case-insensitive.
+#[cfg(windows)]
+#[tokio::test]
+async fn is_executable_by_extension() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let fs = new_fs(dir.path());
+    // NB: The names must differ case-insensitively, since Windows filenames are case-insensitive.
+    for (name, want_is_executable) in [
+        ("no_extension", false),
+        ("script.sh", false),
+        ("script.py", false),
+        ("program.exe", true),
+        ("upper.EXE", true),
+        ("program.com", true),
+        ("mixed.Bat", true),
+        ("script.cmd", true),
+        ("program.exe.txt", false),
+    ] {
+        make_file(&dir.path().join(name), &[], 0o700);
+        assert_eq!(
+            fs.stat_sync(Path::new(name)).unwrap().unwrap(),
+            Stat::File(File {
+                path: PathBuf::from(name),
+                is_executable: want_is_executable,
+            }),
+            "{name}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -48,13 +87,13 @@ async fn file_path() {
 async fn stat_executable_file() {
     let dir = tempfile::TempDir::new().unwrap();
     let fs = new_fs(dir.path());
-    let path = PathBuf::from("photograph_marmosets");
+    let path = PathBuf::from("photograph_marmosets.exe");
     make_file(&dir.path().join(&path), &[], 0o700);
     assert_eq!(
         fs.stat_sync(&path).unwrap().unwrap(),
         super::Stat::File(File {
             path: path,
-            is_executable: EXECUTABLE,
+            is_executable: true,
         })
     )
 }
@@ -156,7 +195,7 @@ async fn scandir() {
     std::fs::create_dir(dir.path().join(&path)).unwrap();
 
     let a_marmoset = PathBuf::from("a_marmoset");
-    let feed = PathBuf::from("feed");
+    let feed = PathBuf::from("feed.exe");
     let hammock = PathBuf::from("hammock");
     let remarkably_similar_marmoset = PathBuf::from("remarkably_similar_marmoset");
     let sneaky_marmoset = PathBuf::from("sneaky_marmoset");
@@ -188,7 +227,7 @@ async fn scandir() {
             }),
             Stat::File(File {
                 path: feed.clone(),
-                is_executable: EXECUTABLE,
+                is_executable: true,
             }),
             Stat::Dir(Dir(hammock.clone())),
             Stat::Link(Link {
@@ -215,7 +254,7 @@ async fn scandir() {
             }),
             Stat::File(File {
                 path: feed,
-                is_executable: EXECUTABLE,
+                is_executable: true,
             }),
             Stat::Dir(Dir(hammock)),
             Stat::File(File {
@@ -246,17 +285,17 @@ async fn stats_for_paths() {
 
     // File tree:
     // dir
-    // dir/recursive_symlink -> ../symlink -> executable_file
+    // dir/recursive_symlink -> ../symlink -> executable_file.exe
     // dir_symlink -> dir
-    // executable_file
+    // executable_file.exe
     // regular_file
-    // symlink -> executable_file
+    // symlink -> executable_file.exe
     // symlink_to_nothing -> doesnotexist
 
-    make_file(&root_path.join("executable_file"), &[], 0o700);
+    make_file(&root_path.join("executable_file.exe"), &[], 0o700);
     make_file(&root_path.join("regular_file"), &[], 0o600);
     std::fs::create_dir(root_path.join("dir")).unwrap();
-    symlink_file("executable_file", root_path.join("symlink"));
+    symlink_file("executable_file.exe", root_path.join("symlink"));
     symlink_file(
         "../symlink",
         root_path.join("dir").join("recursive_symlink"),
@@ -266,7 +305,7 @@ async fn stats_for_paths() {
 
     let fs = Arc::new(new_fs(root_path));
     let path_stats = vec![
-        PathBuf::from("executable_file"),
+        PathBuf::from("executable_file.exe"),
         PathBuf::from("regular_file"),
         PathBuf::from("dir"),
         PathBuf::from("symlink"),
@@ -280,8 +319,8 @@ async fn stats_for_paths() {
     .collect::<Vec<_>>();
     let v: Vec<Option<Stat>> = vec![
         Some(Stat::File(File {
-            path: PathBuf::from("executable_file"),
-            is_executable: EXECUTABLE,
+            path: PathBuf::from("executable_file.exe"),
+            is_executable: true,
         })),
         Some(Stat::File(File {
             path: PathBuf::from("regular_file"),
@@ -290,7 +329,7 @@ async fn stats_for_paths() {
         Some(Stat::Dir(Dir(PathBuf::from("dir")))),
         Some(Stat::Link(Link {
             path: PathBuf::from("symlink"),
-            target: PathBuf::from("executable_file"),
+            target: PathBuf::from("executable_file.exe"),
         })),
         Some(Stat::Link(Link {
             path: PathBuf::from("recursive_symlink"),
@@ -419,18 +458,18 @@ async fn read_link_rejects_rooted_and_prefixed_targets() {
 #[tokio::test]
 async fn path_metadata() {
     let dir = tempfile::TempDir::new().unwrap();
-    make_file(&dir.path().join("marmoset"), b"marmoset", 0o700);
-    symlink_file("marmoset", dir.path().join("link"));
+    make_file(&dir.path().join("marmoset.exe"), b"marmoset", 0o700);
+    symlink_file("marmoset.exe", dir.path().join("link"));
     let fs = new_fs(dir.path());
 
     let file = fs
-        .path_metadata(PathBuf::from("marmoset"), false)
+        .path_metadata(PathBuf::from("marmoset.exe"), false)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(file.kind, PathMetadataKind::File);
     assert_eq!(file.length, 8);
-    assert_eq!(file.is_executable, EXECUTABLE);
+    assert!(file.is_executable);
     assert_eq!(
         file.unix_mode.map(|mode| mode & 0o777),
         if cfg!(unix) { Some(0o700) } else { None }
@@ -442,7 +481,7 @@ async fn path_metadata() {
         .unwrap()
         .unwrap();
     assert_eq!(link.kind, PathMetadataKind::Symlink);
-    assert_eq!(link.symlink_target, Some(PathBuf::from("marmoset")));
+    assert_eq!(link.symlink_target, Some(PathBuf::from("marmoset.exe")));
 
     let followed = fs
         .path_metadata(PathBuf::from("link"), true)
@@ -451,7 +490,7 @@ async fn path_metadata() {
         .unwrap();
     assert_eq!(followed.kind, PathMetadataKind::File);
 
-    for missing in ["no_marmosets", "marmoset/under_a_file"] {
+    for missing in ["no_marmosets", "marmoset.exe/under_a_file"] {
         assert_eq!(
             fs.path_metadata(PathBuf::from(missing), false)
                 .await
@@ -506,10 +545,6 @@ fn new_fs_symlink_oblivious<P: AsRef<Path>>(dir: P) -> FS {
     )
     .unwrap()
 }
-
-/// Whether a file created with an executable mode is reported as executable. Windows has no
-/// executable bit, so files are never executable there.
-const EXECUTABLE: bool = cfg!(unix);
 
 #[cfg(unix)]
 fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
