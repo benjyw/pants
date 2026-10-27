@@ -42,8 +42,9 @@ const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
 ///   fixed rather than read from `PATHEXT`, so that digests do not vary between machines.
 /// - Rust's standard library reports both symlinks and junctions (and any other "name surrogate"
 ///   reparse point) as symlinks, so they are all treated as `Link`s.
-/// - Link targets are reported with `/` as the separator, so that a symlink's target is the same
-///   string as it would be on POSIX.
+/// - Link targets are reported exactly as Windows stores them, typically with `\` as the
+///   separator. So a symlink's target (and therefore its digest) can differ from the same symlink's
+///   on POSIX: we don't currently expect to share digests across platforms.
 /// - A link target that is rooted (`\foo`) or has a drive or UNC prefix (`C:foo`, `C:\foo`,
 ///   `\\server\share`) is treated as absolute.
 /// - The root is canonicalized, which on Windows produces a verbatim (`\\?\C:\...`) path. All paths
@@ -199,7 +200,7 @@ impl WinFS {
         if file_type.is_symlink() {
             Ok(Some(Stat::Link(Link {
                 path: name,
-                target: Self::normalize_link_target(std::fs::read_link(abs_path)?),
+                target: std::fs::read_link(abs_path)?,
             })))
         } else if file_type.is_file() {
             let is_executable = Self::is_executable(&name);
@@ -226,21 +227,6 @@ impl WinFS {
                     .iter()
                     .any(|exe_ext| ext.eq_ignore_ascii_case(exe_ext))
             })
-    }
-
-    ///
-    /// Rewrites a relative link target to use `/` as its separator, so that it matches the target
-    /// that the same link would have on POSIX. Targets with a prefix (drive or UNC) are left as-is,
-    /// since they cannot be expressed with `/` and are rejected as absolute anyway.
-    ///
-    fn normalize_link_target(target: PathBuf) -> PathBuf {
-        if Self::is_absolute_link_target(&target) {
-            return target;
-        }
-        match target.to_str() {
-            Some(s) if s.contains('\\') => PathBuf::from(s.replace('\\', "/")),
-            _ => target,
-        }
     }
 
     ///
@@ -288,7 +274,7 @@ impl WinFS {
                     ))
                 } else {
                     link_parent
-                        .map(|parent| parent.join(Self::normalize_link_target(path_buf.clone())))
+                        .map(|parent| parent.join(&path_buf))
                         .ok_or_else(|| {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
@@ -345,10 +331,7 @@ impl WinFS {
                 let (kind, symlink_target) = match metadata.file_type() {
                     ft if ft.is_symlink() => {
                         let symlink_target = tokio::fs::read_link(&abs_path).await.map_err(|e| io::Error::other(format!("path {abs_path:?} was previously a symlink but read_link failed: {e}")))?;
-                        (
-                            PathMetadataKind::Symlink,
-                            Some(Self::normalize_link_target(symlink_target)),
-                        )
+                        (PathMetadataKind::Symlink, Some(symlink_target))
                     }
                     ft if ft.is_dir() => (PathMetadataKind::Directory, None),
                     ft if ft.is_file() => (PathMetadataKind::File, None),
