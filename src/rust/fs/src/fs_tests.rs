@@ -333,7 +333,7 @@ async fn stats_for_paths() {
         })),
         Some(Stat::Link(Link {
             path: PathBuf::from("recursive_symlink"),
-            target: PathBuf::from("../symlink"),
+            target: native_path("../symlink"),
         })),
         Some(Stat::Link(Link {
             path: PathBuf::from("dir_symlink"),
@@ -401,24 +401,26 @@ async fn read_link() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::create_dir_all(dir.path().join("a").join("b")).unwrap();
     make_file(&dir.path().join("a").join("b").join("marmoset"), &[], 0o600);
-    // On Windows, `symlink_file` writes the target with `\\`, and FS reports it with `/`.
+    // On Windows, `symlink_file` writes the target with `\\`, and FS reports it as-is.
     symlink_file("b/marmoset", dir.path().join("a").join("link"));
 
     let fs = new_fs(dir.path());
     let link = Link {
         path: PathBuf::from("a").join("link"),
-        target: PathBuf::from("b/marmoset"),
+        target: native_path("b/marmoset"),
     };
+    let Stat::Link(stat) = fs.stat_sync(&link.path).unwrap().unwrap() else {
+        panic!("Expected a link");
+    };
+    assert_eq!(stat.path, PathBuf::from("link"));
+    // NB: `PathBuf` equality on Windows treats `/` and `\\` alike, so compare the raw strings.
     assert_eq!(
-        fs.stat_sync(&link.path).unwrap().unwrap(),
-        Stat::Link(Link {
-            path: PathBuf::from("link"),
-            target: PathBuf::from("b/marmoset"),
-        })
+        stat.target.as_os_str(),
+        native_path("b/marmoset").as_os_str()
     );
     assert_eq!(
         fs.read_link(&link).await.unwrap(),
-        PathBuf::from("a").join("b/marmoset")
+        PathBuf::from("a").join("b").join("marmoset")
     );
 }
 
@@ -583,4 +585,9 @@ fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
 #[cfg(windows)]
 fn windows_link_target(target: &Path) -> PathBuf {
     PathBuf::from(target.to_str().unwrap().replace('/', "\\"))
+}
+
+/// The path that a target written with `/` has once `symlink_file` creates it on this platform.
+fn native_path(path: &str) -> PathBuf {
+    PathBuf::from(path.replace('/', std::path::MAIN_SEPARATOR_STR))
 }
