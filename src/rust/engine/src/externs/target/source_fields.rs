@@ -463,19 +463,16 @@ impl MultipleSourcesField {
         if cls
             .getattr(intern!(py, "ban_subdirectories"))?
             .is_truthy()?
-            && strs
-                .iter()
-                .any(|g| g.contains("**") || g.contains(std::path::MAIN_SEPARATOR))
+            && strs.iter().any(|g| g.contains("**") || g.contains('/'))
         {
             strs.sort();
             let alias = Field::cls_alias(cls)?;
-            let sep = std::path::MAIN_SEPARATOR;
             return Err(raise_invalid_field(
                 py,
                 format!(
                     "The {} field in target {address} must only have globs for \
                      the target's directory, i.e. it cannot include values with `**` or \
-                     `{sep}`. It was set to: {}",
+                     `/`. It was set to: {}",
                     PyRepr(&alias),
                     PyReprList(&strs),
                 ),

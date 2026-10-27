@@ -66,7 +66,7 @@ impl PreparedInferenceRequest {
 
     fn cache_key_for_file(&self, path: &Path, digest: Digest) -> CacheKey {
         let file_request = DependencyInferenceRequest {
-            input_file_path: path.display().to_string(),
+            input_file_path: fs::path_to_slash_lossy(path).into_owned(),
             input_file_digest: Some(digest.into()),
             metadata: self.cache_key_base.metadata.clone(),
             impl_hash: self.cache_key_base.impl_hash.clone(),
@@ -104,11 +104,8 @@ fn parse_dockerfile_info(deps_request: Value) -> PyGeneratorResponseNativeCall {
                         py,
                         core.types.parsed_dockerfile_info_result,
                         &[
-                            result
-                                .path
-                                .as_os_str()
-                                .to_str()
-                                .map(|s| s.to_string())
+                            fs::path_to_slash(&result.path)
+                                .map(|s| s.into_owned())
                                 .ok_or_else(|| {
                                     PyException::new_err(format!(
                                         "Could not convert ParsedDockerfileDependencies.path `{}` to UTF8.",
@@ -281,10 +278,8 @@ where
     let mut result_pairs = Vec::with_capacity(parsed_results.len());
     for (path, result) in parsed_results {
         let py_result_pair = Python::attach(|py| -> Result<_, PyErr> {
-            let path_str: String = path
-                .as_os_str()
-                .to_str()
-                .map(|s| s.to_string())
+            let path_str: String = fs::path_to_slash(&path)
+                .map(|s| s.into_owned())
                 .ok_or_else(|| {
                     PyException::new_err(format!(
                         "Could not convert path `{}` to UTF8.",

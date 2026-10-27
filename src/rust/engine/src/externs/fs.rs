@@ -850,11 +850,8 @@ impl PyPathMetadata {
 
     #[getter]
     pub fn path(&self) -> PyResult<String> {
-        self.0
-            .path
-            .as_os_str()
-            .to_str()
-            .map(|s| s.to_string())
+        fs::path_to_slash(&self.0.path)
+            .map(|s| s.into_owned())
             .ok_or_else(|| {
                 PyException::new_err(format!(
                     "Could not convert PyPathMetadata.path `{}` to UTF8.",

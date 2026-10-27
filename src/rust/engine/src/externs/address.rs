@@ -199,11 +199,7 @@ impl AddressInput {
         let mut path_component: Cow<str> = address.path.into();
         if let Some(normalized_relative_to) = normalized_relative_to {
             if let Some(stripped) = path_component.strip_prefix("./") {
-                path_component = format!(
-                    "{normalized_relative_to}{}{stripped}",
-                    std::path::MAIN_SEPARATOR
-                )
-                .into();
+                path_component = format!("{normalized_relative_to}/{stripped}").into();
             }
             if path_component.is_empty() {
                 path_component = normalized_relative_to.into();
@@ -216,7 +212,7 @@ impl AddressInput {
         // NB: We confirm that the path_component is normalized while still in `str` form because
         // `Path` hides many of the components we're attempting to validate.
         if !path_component.is_empty() {
-            for component in path_component.split(std::path::MAIN_SEPARATOR) {
+            for component in path_component.split('/') {
                 if matches!(component, "." | ".." | "") {
                     return Err(InvalidSpecPathError::new_err(format!(
                         "Invalid address `{spec}` from {description_of_origin}. It has an \
@@ -226,8 +222,14 @@ impl AddressInput {
             }
         }
 
+        // NB: Paths inside the engine always use `/` as their separator, so join with it explicitly
+        // rather than with `Path::join` (which would use `\` on Windows). This matches what
+        // `Path::join` does on unix, including leaving a trailing `/` if `path_component` is empty.
         let path_component = if let Some((subproject, _)) = subproject_info {
-            Path::new(subproject).join(Path::new(&*path_component))
+            PathBuf::from(format!(
+                "{}/{path_component}",
+                subproject.trim_end_matches('/')
+            ))
         } else {
             PathBuf::from(path_component.into_owned())
         };
@@ -250,10 +252,8 @@ impl AddressInput {
 
     #[getter]
     fn path_component(&self) -> PyResult<String> {
-        self.path_component
-            .as_os_str()
-            .to_str()
-            .map(|s| s.to_string())
+        fs::path_to_slash(&self.path_component)
+            .map(|s| s.into_owned())
             .ok_or_else(|| {
                 PyException::new_err(format!(
                     "Could not convert AddressInput.path_component `{}` to UTF8.",
@@ -370,8 +370,8 @@ impl AddressInput {
         }
 
         let offset = path_components.len() - (parent_count + 1);
-        let spec_path = path_components[..offset].join(std::path::MAIN_SEPARATOR_STR);
-        let relative_file_path = path_components[offset..].join(std::path::MAIN_SEPARATOR_STR);
+        let spec_path = path_components[..offset].join("/");
+        let relative_file_path = path_components[offset..].join("/");
         let target_name = Path::new(&target_component).file_name();
         Address::__new__(
             spec_path.into(),
@@ -539,10 +539,8 @@ impl Address {
 
     #[getter]
     fn spec_path(&self) -> PyResult<String> {
-        self.spec_path
-            .as_os_str()
-            .to_str()
-            .map(|s| s.to_string())
+        fs::path_to_slash(&self.spec_path)
+            .map(|s| s.into_owned())
             .ok_or_else(|| {
                 PyException::new_err(format!(
                     "Could not convert Address.spec_path `{}` to UTF8.",
@@ -560,9 +558,8 @@ impl Address {
     fn relative_file_path(&self) -> PyResult<Option<String>> {
         match &self.relative_file_path {
             Some(p) => Ok(Some(
-                p.as_os_str()
-                    .to_str()
-                    .map(|s| s.to_string())
+                fs::path_to_slash(p)
+                    .map(|s| s.into_owned())
                     .ok_or_else(|| {
                         PyException::new_err(format!(
                             "Could not convert Address.relative_file_path `{}` to UTF8.",
@@ -607,10 +604,8 @@ impl Address {
     fn filename(&self) -> PyResult<String> {
         if let Some(relative_file_path) = self.relative_file_path.as_ref() {
             let full_path = self.spec_path.join(relative_file_path);
-            full_path
-                .as_os_str()
-                .to_str()
-                .map(|s| s.to_string())
+            fs::path_to_slash(&full_path)
+                .map(|s| s.into_owned())
                 .ok_or_else(|| {
                     PyException::new_err(format!(
                         "Could not convert Address.path_component `{}` to UTF8.",
@@ -695,7 +690,7 @@ impl Address {
 
         format!(
             "{prefix}{}{target_sep}{target}{generated}{}",
-            path.display(),
+            fs::path_to_slash_lossy(&path),
             self.parameters_repr()
         )
     }
@@ -703,7 +698,7 @@ impl Address {
     #[getter]
     fn path_safe_spec(&self) -> PyResult<String> {
         fn sanitize<D: std::fmt::Display>(s: D) -> String {
-            s.to_string().replace(std::path::MAIN_SEPARATOR, ".")
+            s.to_string().replace('/', ".")
         }
 
         let (parent_prefix, path): (Cow<str>, Cow<str>) = match self.relative_file_path.as_ref() {
@@ -716,7 +711,7 @@ impl Address {
                 };
                 (
                     parent_prefix,
-                    format!(".{}", sanitize(relative_file_path.display())).into(),
+                    format!(".{}", sanitize(fs::path_to_slash_lossy(relative_file_path))).into(),
                 )
             }
             _ => (".".into(), "".into()),
@@ -744,7 +739,7 @@ impl Address {
             "".into()
         };
 
-        let prefix = sanitize(self.spec_path.display());
+        let prefix = sanitize(fs::path_to_slash_lossy(&self.spec_path));
 
         Ok(format!("{prefix}{path}{target}{generated}{params}"))
     }
