@@ -14,6 +14,13 @@ use crate::gitignore::GitignoreStyleExcludes;
 use crate::{Dir, DirectoryListing, File, Link, PathMetadata, PathMetadataKind, Stat, Vfs};
 
 ///
+/// The extensions of files that WinFS reports as executable. These are the extensions in the
+/// default `PATHEXT` that name programs or scripts run directly by Windows itself, rather than by
+/// an interpreter that happens to be registered for them.
+///
+const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
+
+///
 /// The Windows counterpart of `PosixFS`, with the same API.
 ///
 /// All Stats consumed or returned by this type are relative to the root.
@@ -25,8 +32,9 @@ use crate::{Dir, DirectoryListing, File, Link, PathMetadata, PathMetadataKind, S
 ///
 /// Where Windows semantics differ from POSIX:
 ///
-/// - There is no executable bit, so files are never reported as executable, and `unix_mode` is
-///   always `None`.
+/// - There is no executable bit, so a file is reported as executable if its name has one of
+///   `EXECUTABLE_EXTENSIONS` (case-insensitively), and `unix_mode` is always `None`. The list is
+///   fixed rather than read from `PATHEXT`, so that digests do not vary between machines.
 /// - Rust's standard library reports both symlinks and junctions (and any other "name surrogate"
 ///   reparse point) as symlinks, so they are all treated as `Link`s.
 /// - Link targets are reported with `/` as the separator, so that a symlink's target is the same
@@ -189,15 +197,30 @@ impl WinFS {
                 target: Self::normalize_link_target(std::fs::read_link(abs_path)?),
             })))
         } else if file_type.is_file() {
+            let is_executable = Self::is_executable(&name);
             Ok(Some(Stat::File(File {
                 path: name,
-                is_executable: false,
+                is_executable,
             })))
         } else if file_type.is_dir() {
             Ok(Some(Stat::Dir(Dir(name))))
         } else {
             Ok(None)
         }
+    }
+
+    ///
+    /// Whether a file at `path` should be considered executable, based on its extension. See
+    /// `EXECUTABLE_EXTENSIONS`.
+    ///
+    fn is_executable(path: &Path) -> bool {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                EXECUTABLE_EXTENSIONS
+                    .iter()
+                    .any(|exe_ext| ext.eq_ignore_ascii_case(exe_ext))
+            })
     }
 
     ///
@@ -327,11 +350,13 @@ impl WinFS {
                     _ => unreachable!("std::fs::FileType was not a symlink, directory, or file"),
                 };
 
+                let is_executable = kind == PathMetadataKind::File && Self::is_executable(&path);
+
                 Ok(Some(PathMetadata {
                     path,
                     kind,
                     length: metadata.len(),
-                    is_executable: false,
+                    is_executable,
                     unix_mode: None,
                     accessed: metadata.accessed().ok(),
                     created: metadata.created().ok(),
