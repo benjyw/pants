@@ -1,10 +1,10 @@
 // Copyright 2025 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -42,6 +42,10 @@ const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
 ///   fixed rather than read from `PATHEXT`, so that digests do not vary between machines.
 /// - Rust's standard library reports both symlinks and junctions (and any other "name surrogate"
 ///   reparse point) as symlinks, so they are all treated as `Link`s.
+/// - A junction's target is always absolute. If it is inside the root, it is reported as the
+///   equivalent relative path (e.g. `C:\repo\a\j -> C:\repo\b` is reported as `..\b`), so that the
+///   junction can be traversed like a relative symlink. A junction pointing outside the root is
+///   reported as-is, and so is rejected by `read_link` like any other absolute link.
 /// - Link targets are reported exactly as Windows stores them, typically with `\` as the
 ///   separator. So a symlink's target (and therefore its digest) can differ from the same symlink's
 ///   on POSIX: we don't currently expect to share digests across platforms.
@@ -141,11 +145,11 @@ impl WinFS {
                 // NB: On Windows, the file type comes from the directory enumeration itself, so this
                 // does not require an additional syscall.
                 let file_type = dir_entry.file_type()?;
-                Self::make_stat(entry_abs, file_name.into(), file_type)?
+                self.make_stat(entry_abs, file_name.into(), file_type)?
             }
             SymlinkBehavior::Oblivious => {
                 let metadata = std::fs::metadata(entry_abs)?;
-                Self::make_stat(entry_abs, file_name.into(), metadata.file_type())?
+                self.make_stat(entry_abs, file_name.into(), metadata.file_type())?
             }
         };
 
@@ -172,6 +176,7 @@ impl WinFS {
     // component. Callers on the directory-walk hot path use `make_stat` instead, reusing the name
     // they already own.
     fn stat_internal(
+        &self,
         path_to_stat: &Path,
         file_type: std::fs::FileType,
     ) -> Result<Option<Stat>, io::Error> {
@@ -181,10 +186,11 @@ impl WinFS {
                 "Argument path_to_stat to WinFS::stat_internal must have a file name.",
             ));
         };
-        Self::make_stat(path_to_stat, name.into(), file_type)
+        self.make_stat(path_to_stat, name.into(), file_type)
     }
 
     fn make_stat(
+        &self,
         abs_path: &Path,
         name: PathBuf,
         file_type: std::fs::FileType,
@@ -200,7 +206,7 @@ impl WinFS {
         if file_type.is_symlink() {
             Ok(Some(Stat::Link(Link {
                 path: name,
-                target: std::fs::read_link(abs_path)?,
+                target: self.read_link_target(abs_path)?,
             })))
         } else if file_type.is_file() {
             let is_executable = Self::is_executable(&name);
@@ -213,6 +219,24 @@ impl WinFS {
         } else {
             Ok(None)
         }
+    }
+
+    ///
+    /// Reads the target of the link at `link_abs`, relativizing it if it is a junction to a path
+    /// inside the root.
+    ///
+    fn read_link_target(&self, link_abs: &Path) -> Result<PathBuf, io::Error> {
+        let target = fs::read_link(link_abs)?;
+        // NB: Junction targets are always absolute, so only check for one if the target is.
+        if Self::is_absolute_link_target(&target)
+            && is_junction(link_abs)?
+            && let Some(relative_target) = link_abs.parent().and_then(|link_parent| {
+                relativize_junction_target(&self.root.0, link_parent, &target)
+            })
+        {
+            return Ok(relative_target);
+        }
+        Ok(target)
     }
 
     ///
@@ -264,8 +288,11 @@ impl WinFS {
     pub async fn read_link(&self, link: &Link) -> Result<PathBuf, io::Error> {
         let link_parent = link.path.parent().map(Path::to_owned);
         let link_abs = self.root.0.join(link.path.as_path());
-        tokio::fs::read_link(&link_abs)
-            .await
+        let vfs = self.clone();
+        let link_abs_for_read = link_abs.clone();
+        self.executor
+            .spawn_blocking(move || vfs.read_link_target(&link_abs_for_read))
+            .await?
             .and_then(|path_buf| {
                 if Self::is_absolute_link_target(&path_buf) {
                     Err(io::Error::new(
@@ -308,7 +335,7 @@ impl WinFS {
             SymlinkBehavior::Oblivious => fs::metadata(&abs_path),
         };
         metadata
-            .and_then(|metadata| WinFS::stat_internal(&abs_path, metadata.file_type()))
+            .and_then(|metadata| self.stat_internal(&abs_path, metadata.file_type()))
             .or_else(|err| match err.kind() {
                 io::ErrorKind::NotFound => Ok(None),
                 _ => Err(err),
@@ -330,7 +357,9 @@ impl WinFS {
             Ok(metadata) => {
                 let (kind, symlink_target) = match metadata.file_type() {
                     ft if ft.is_symlink() => {
-                        let symlink_target = tokio::fs::read_link(&abs_path).await.map_err(|e| io::Error::other(format!("path {abs_path:?} was previously a symlink but read_link failed: {e}")))?;
+                        let vfs = self.clone();
+                        let link_abs = abs_path.clone();
+                        let symlink_target = self.executor.spawn_blocking(move || vfs.read_link_target(&link_abs)).await?.map_err(|e| io::Error::other(format!("path {abs_path:?} was previously a symlink but read_link failed: {e}")))?;
                         (PathMetadataKind::Symlink, Some(symlink_target))
                     }
                     ft if ft.is_dir() => (PathMetadataKind::Directory, None),
@@ -390,4 +419,130 @@ impl Vfs<io::Error> for Arc<WinFS> {
     fn mk_error(msg: &str) -> io::Error {
         io::Error::other(msg)
     }
+}
+
+///
+/// Whether the link at `link_abs` is a junction (a "mount point" reparse point) rather than a
+/// symlink, which Rust's standard library does not distinguish.
+///
+fn is_junction(link_abs: &Path) -> Result<bool, io::Error> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW, WIN32_FIND_DATAW,
+    };
+    use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_MOUNT_POINT;
+
+    let wide_path: Vec<u16> = link_abs
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `WIN32_FIND_DATAW` is a plain C struct for which all zeroes is a valid value,
+    // `wide_path` is NUL-terminated, and the handle is closed before returning.
+    let find_data = unsafe {
+        let mut find_data: WIN32_FIND_DATAW = std::mem::zeroed();
+        let handle = FindFirstFileW(wide_path.as_ptr(), &mut find_data);
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        FindClose(handle);
+        find_data
+    };
+    // NB: For a reparse point, `FindFirstFileW` reports the reparse tag in `dwReserved0`.
+    Ok(
+        find_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            && find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT,
+    )
+}
+
+///
+/// If the junction target `target` is inside `root`, returns it as a path relative to
+/// `link_parent` (the directory containing the junction, which must also be inside `root`).
+/// Otherwise returns None.
+///
+/// All three paths must be absolute. They are compared lexically, so a verbatim path (`\\?\C:\`)
+/// matches its ordinary form (`C:\`), and case-insensitively, as Windows paths usually are.
+///
+pub(crate) fn relativize_junction_target(
+    root: &Path,
+    link_parent: &Path,
+    target: &Path,
+) -> Option<PathBuf> {
+    let root = comparable_components(root)?;
+    let link_parent = comparable_components(link_parent)?;
+    let target = comparable_components(target)?;
+
+    let is_in_root = |components: &[(String, &OsStr)]| {
+        components.len() >= root.len()
+            && components
+                .iter()
+                .zip(&root)
+                .all(|((key, _), (root_key, _))| key == root_key)
+    };
+    if !is_in_root(&link_parent) || !is_in_root(&target) {
+        return None;
+    }
+
+    let common_len = link_parent
+        .iter()
+        .zip(&target)
+        .take_while(|((parent_key, _), (target_key, _))| parent_key == target_key)
+        .count();
+    let mut relative_target = PathBuf::new();
+    for _ in common_len..link_parent.len() {
+        relative_target.push("..");
+    }
+    for (_, name) in &target[common_len..] {
+        relative_target.push(name);
+    }
+    if relative_target.as_os_str().is_empty() {
+        relative_target.push(".");
+    }
+    Some(relative_target)
+}
+
+///
+/// The components of an absolute path, each as a key to compare it by and its original name.
+/// Returns None for a path that isn't absolute, or whose prefix can't be compared (such as a
+/// device path).
+///
+/// NB: Lowercasing approximates the case-insensitivity of Windows filesystems, which actually use
+/// a per-volume uppercase table.
+///
+fn comparable_components(path: &Path) -> Option<Vec<(String, &OsStr)>> {
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return None;
+    };
+    let prefix_key = match prefix.kind() {
+        Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => {
+            format!("{}:", char::from(drive).to_ascii_lowercase())
+        }
+        Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => format!(
+            "\\\\{}\\{}",
+            server.to_str()?.to_lowercase(),
+            share.to_str()?.to_lowercase()
+        ),
+        _ => return None,
+    };
+    if components.next() != Some(Component::RootDir) {
+        return None;
+    }
+
+    let mut result = vec![(prefix_key, OsStr::new(""))];
+    for component in components {
+        match component {
+            Component::Normal(name) => result.push((name.to_str()?.to_lowercase(), name)),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if result.len() > 1 {
+                    result.pop();
+                }
+            }
+            Component::Prefix(_) | Component::RootDir => return None,
+        }
+    }
+    Some(result)
 }

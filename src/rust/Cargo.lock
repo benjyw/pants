@@ -1381,6 +1381,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
+ "windows-sys 0.61.1",
  "workunit_store",
 ]
 

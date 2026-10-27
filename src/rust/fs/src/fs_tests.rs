@@ -517,6 +517,96 @@ async fn path_metadata_illegal_filename() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn relativize_junction_target() {
+    use crate::winfs::relativize_junction_target;
+
+    let root = Path::new(r"\\?\C:\repo");
+    for (link_parent, target, expected) in [
+        // Sibling, cousin, child and ancestor targets.
+        (r"C:\repo\a", r"C:\repo\a\b", Some(r"b")),
+        (r"C:\repo\a", r"C:\repo\b", Some(r"..\b")),
+        (r"C:\repo\a\b", r"C:\repo\c\d", Some(r"..\..\c\d")),
+        (r"C:\repo\a", r"C:\repo", Some(r"..")),
+        (r"C:\repo\a", r"C:\repo\a", Some(r".")),
+        // Verbatim and ordinary paths, and differently-cased paths, are equivalent.
+        (r"\\?\C:\repo\a", r"c:\REPO\B", Some(r"..\B")),
+        (r"C:\Repo\A", r"\\?\C:\repo\a\b", Some(r"b")),
+        // `..` is resolved lexically.
+        (r"C:\repo\a", r"C:\repo\x\..\b", Some(r"..\b")),
+        // Targets outside the root.
+        (r"C:\repo\a", r"C:\other", None),
+        (r"C:\repo\a", r"C:\repository", None),
+        (r"C:\repo\a", r"C:\repo\..\other", None),
+        (r"C:\repo\a", r"D:\repo\b", None),
+        (r"C:\repo\a", r"\\server\share\repo\b", None),
+    ] {
+        assert_eq!(
+            relativize_junction_target(root, Path::new(link_parent), Path::new(target)),
+            expected.map(PathBuf::from),
+            "{link_parent} -> {target}"
+        );
+    }
+
+    let unc_root = Path::new(r"\\?\UNC\Server\Share\repo");
+    assert_eq!(
+        relativize_junction_target(
+            unc_root,
+            Path::new(r"\\server\share\repo\a"),
+            Path::new(r"\\SERVER\share\repo\b"),
+        ),
+        Some(PathBuf::from(r"..\b"))
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn junction_inside_root() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("a")).unwrap();
+    std::fs::create_dir_all(dir.path().join("b")).unwrap();
+    make_file(&dir.path().join("b").join("marmoset"), &[], 0o600);
+    junction(dir.path().join("b"), dir.path().join("a").join("j"));
+
+    let fs = new_fs(dir.path());
+    let link = Link {
+        path: PathBuf::from("a").join("j"),
+        target: PathBuf::from(r"..\b"),
+    };
+    let Stat::Link(stat) = fs.stat_sync(&link.path).unwrap().unwrap() else {
+        panic!("Expected a link");
+    };
+    assert_eq!(stat.target.as_os_str(), r"..\b");
+    assert_eq!(
+        fs.read_link(&link).await.unwrap(),
+        PathBuf::from("a").join("..").join("b")
+    );
+    let metadata = fs
+        .path_metadata(link.path.clone(), false)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(metadata.kind, PathMetadataKind::Symlink);
+    assert_eq!(metadata.symlink_target, Some(PathBuf::from(r"..\b")));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn junction_outside_root() {
+    let outside = tempfile::TempDir::new().unwrap();
+    let dir = tempfile::TempDir::new().unwrap();
+    junction(outside.path(), dir.path().join("j"));
+
+    let fs = new_fs(dir.path());
+    let Stat::Link(stat) = fs.stat_sync(Path::new("j")).unwrap().unwrap() else {
+        panic!("Expected a link");
+    };
+    assert!(stat.target.is_absolute(), "{:?}", stat.target);
+    let err = fs.read_link(&stat).await.expect_err("Want error");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{err}");
+}
+
 async fn assert_only_file_is_executable(path: &Path, want_is_executable: bool) {
     let fs = new_fs(path);
     let stats = fs.scandir(Dir(PathBuf::from("."))).await.unwrap();
@@ -590,4 +680,23 @@ fn windows_link_target(target: &Path) -> PathBuf {
 /// The path that a target written with `/` has once `symlink_file` creates it on this platform.
 fn native_path(path: &str) -> PathBuf {
     PathBuf::from(path.replace('/', std::path::MAIN_SEPARATOR_STR))
+}
+
+// NB: Unlike symlinks, junctions can be created without any special privileges.
+#[cfg(windows)]
+fn junction<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) {
+    let status = std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("mklink")
+        .arg("/J")
+        .arg(link.as_ref())
+        .arg(target.as_ref())
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "Failed to create junction {:?} -> {:?}",
+        link.as_ref(),
+        target.as_ref()
+    );
 }
