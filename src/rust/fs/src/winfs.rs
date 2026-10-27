@@ -18,6 +18,11 @@ use crate::{Dir, DirectoryListing, File, Link, PathMetadata, PathMetadataKind, S
 /// default `PATHEXT` that name programs or scripts run directly by Windows itself, rather than by
 /// an interpreter that happens to be registered for them.
 ///
+/// NB: We deliberately don't use `SaferiIsExecutableFileType`, which checks against the Software
+/// Restriction Policies list of "designated file types". That list lives in the registry and can be
+/// changed by Group Policy, so the same file could get a different digest on different machines.
+/// (Its default list also includes non-program types such as `.lnk`, `.url` and `.reg`.)
+///
 const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
 
 ///
