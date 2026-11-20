@@ -16,6 +16,7 @@ from textwrap import dedent  # noqa: PNT20
 from typing import TypeVar
 
 import packaging.specifiers
+from packaging.utils import canonicalize_name
 import packaging.version
 from packaging.requirements import Requirement
 
@@ -821,12 +822,18 @@ async def build_pex(
                 )
             )
 
+        if not python_setup.create_venv_repository_from_entire_lockfile and req_strings:
+            dependency_groups = tuple(canonicalize_name(Requirement(r).name) for r in req_strings)
+        else:
+            dependency_groups = None
+
         venv_repos = list(
             await concurrently(
                 create_venv_repository_from_uv_lockfile(
                     VenvFromUvLockfileRequest(
                         lockfile=requirements_setup.uv_lockfile,
                         python=python,
+                        dependency_groups=dependency_groups,
                         uv_platform=uv_platform,
                     ),
                     **implicitly(),
